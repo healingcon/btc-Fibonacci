@@ -632,60 +632,94 @@ function scheduleWSRetry(){
 async function loadCandles(){
   candles=[];aiLines=[];aiFib=null;aiPivots=[];aiChannels=[];aiHzones=[];
   wsAlive=false;wsRetry=0;
-  document.getElementById('spin-wrap').style.display='flex';
-  document.getElementById('spin-msg').textContent='데이터 로딩 중...';
-  ['a-fib','a-r2','a-ch'].forEach(id=>document.getElementById(id).style.display='none');
+
+  const spinWrap=document.getElementById('spin-wrap');
+  const spinMsg=document.getElementById('spin-msg');
+  const hideSpinner=()=>{ spinWrap.style.display='none'; }; // 보장된 숨김 함수
+
+  spinWrap.style.display='flex';
+  spinMsg.textContent='데이터 로딩 중...';
+  ['a-fib','a-r2','a-ch'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
   setStatus('데이터 로딩 중...','');
 
-  // 폴링은 항상 시작 (WS 연결 여부와 무관하게 백업)
+  // ── 안전장치: 15초 후 강제로 스피너 숨김 ──────────────
+  const forceHideTimer = setTimeout(()=>{
+    hideSpinner();
+    setStatus('로드 타임아웃 · 재시도 중...','rest');
+    draw();
+  }, 15000);
+
+  // 폴링 시작 (WS 백업)
   startPolling();
 
-  // 초기 24H 데이터 먼저 가져오기
+  // 24H 티커
   try{
-    const d=await fetchJSON(`${FAPI}/ticker/24hr?symbol=${currentSym}`,10000);
+    const d=await fetchJSON(`${FAPI}/ticker/24hr?symbol=${currentSym}`,6000);
     updatePrice(+(d.lastPrice||0),+(d.highPrice||0),+(d.lowPrice||0),+(d.quoteVolume||0),+(d.openPrice||0));
   }catch(e){}
 
+  // 캔들 로드 (3회 재시도)
   let loaded=false;
   const klineURLs=[
     `${FAPI}/klines?symbol=${currentSym}&interval=${tf}&limit=300`,
     `https://fapi.binance.com/fapi/v2/klines?symbol=${currentSym}&interval=${tf}&limit=300`,
+    `https://fapi1.binance.com/fapi/v1/klines?symbol=${currentSym}&interval=${tf}&limit=300`,
   ];
-  for(let i=0;i<klineURLs.length;i++){
-    try{
-      document.getElementById('spin-msg').textContent=`캔들 로드 중 (${i+1}/${klineURLs.length})...`;
-      const data=await fetchJSON(klineURLs[i],12000);
-      if(!Array.isArray(data)||data.length<10)throw new Error('empty');
-      candles=data.map(d=>({time:+d[0],open:+d[1],high:+d[2],low:+d[3],close:+d[4],vol:+d[5]}));
-      // 이상값 필터: 중앙값 기준 ±60% 벗어난 캔들 제거
-      if(candles.length>10){
-        const mids=candles.map(c=>c.close).sort((a,b)=>a-b);
-        const median=mids[Math.floor(mids.length/2)];
-        candles=candles.filter(c=>c.close>median*0.4&&c.close<median*2.5&&c.high>0&&c.low>0&&c.high>=c.low);
+
+  for(let attempt=0; attempt<3 && !loaded; attempt++){
+    for(let i=0; i<klineURLs.length && !loaded; i++){
+      try{
+        spinMsg.textContent=attempt>0
+          ? `재시도 ${attempt+1}/3...`
+          : `캔들 로딩 (${i+1}/${klineURLs.length})...`;
+
+        const data=await fetchJSON(klineURLs[i], 8000);
+        if(!Array.isArray(data)||data.length<5) throw new Error('데이터 부족');
+
+        candles=data.map(d=>({
+          time:+d[0], open:+d[1], high:+d[2],
+          low:+d[3],  close:+d[4], vol:+d[5]
+        }));
+
+        // open이 0인 캔들 제거 (양봉 버그 방지)
+        candles=candles.filter(c=>c.open>0&&c.close>0&&c.high>0&&c.low>0&&c.high>=c.low&&c.open<=c.high&&c.open>=c.low);
+
+        // 이상값 필터
+        if(candles.length>10){
+          const mids=candles.map(c=>c.close).sort((a,b)=>a-b);
+          const med=mids[Math.floor(mids.length/2)];
+          candles=candles.filter(c=>c.close>med*0.4&&c.close<med*2.5);
+        }
+
+        if(candles.length<5) throw new Error('필터 후 데이터 부족');
+        loaded=true;
+        const last=candles[candles.length-1];
+        if(last?.close>0) updatePrice(last.close,0,0,0,0);
+
+      }catch(e){
+        console.warn(`캔들 로드 실패 (URL ${i+1}):`, e.message);
+        await new Promise(r=>setTimeout(r,800));
       }
-      loaded=true;
-      // 마지막 캔들 가격 즉시 표시
-      const last=candles[candles.length-1];
-      if(last&&last.close>0)updatePrice(last.close,0,0,0,0);
-      break;
-    }catch(e){
-      await new Promise(r=>setTimeout(r,1000));
     }
+    if(!loaded && attempt<2) await new Promise(r=>setTimeout(r,1500));
   }
 
-  document.getElementById('spin-wrap').style.display='none';
+  // 스피너 반드시 숨기기
+  clearTimeout(forceHideTimer);
+  hideSpinner();
 
   if(loaded){
-    runAI(getVis());draw();
-    setStatus('REST 폴링 · Binance Futures','rest');
+    runAI(getVis());
+    scheduleDraw();
+    setStatus('Binance Futures','rest');
   }else{
-    draw(); // 빈 차트라도 표시
-    setStatus('캔들 로드 실패 · 가격만 폴링 중','rest');
+    scheduleDraw();
+    setStatus('캔들 로드 실패 · 가격 폴링 중','rest');
+    spinMsg.textContent='캔들 로드 실패. 가격만 표시 중...';
+    // 실패해도 스피너는 숨김 (이미 위에서 처리)
   }
 
-  // WS 연결 시도 (폴링과 병행)
   connectWS();
-  // OI 폴링 시작
   startOIPoll();
 }
 
@@ -2220,7 +2254,7 @@ const COIN_ICONS = {
   MATIC:'⬡',POL:'⬡',ARB:'◈',OP:'🔴',APT:'▲',INJ:'◆',WIF:'🐕',
   FLOKI:'🐶',SHIB:'🐕',TRX:'◆',ATOM:'⚛',FIL:'⬡',UNI:'🦄',
   AAVE:'👻',MKR:'⚙',SNX:'⚡',COMP:'🏦',CRV:'〜',BAL:'⚖',
-  SUSHI:'🍣',YFI:'💰',1INCH:'1',RUNE:'᚛',THETA:'Θ',VET:'✓',
+  SUSHI:'🍣',YFI:'💰','1INCH':'1️⃣',RUNE:'᚛',THETA:'Θ',VET:'✓',
   XLM:'✦',ALGO:'▲',ICP:'∞',HBAR:'ℏ',EOS:'Ε',XTZ:'ꜩ',EGLD:'⚡',
   SAND:'🏖',MANA:'🌐',AXS:'⚔',ENJ:'💎',CHZ:'⚽',GALA:'🎮',
   IMX:'🌀',ROSE:'🌹',ONE:'1',KAVA:'🌊',CELO:'🌎',ZIL:'⚡',
@@ -2320,10 +2354,13 @@ async function fetchCoinPrices(){
   }catch(e){}
 }
 
-// 앱 시작 시 전체 목록 로드
-loadBinanceFuturesList().then(()=>{
-  if(currentExchange==='binance') renderPanelCoins(COIN_LIST);
-});
+// 앱 시작 시 전체 목록 백그라운드 로드 (차트 로딩 안 막음)
+setTimeout(()=>{
+  loadBinanceFuturesList().then(()=>{
+    if(currentExchange==='binance' && document.getElementById('coin-panel')?.style.display!=='none')
+      renderPanelCoins(COIN_LIST);
+  });
+}, 1000); // 1초 딜레이로 차트 먼저 로드
 
 function switchSymbol(sym){
   if(sym===currentSym)return;
