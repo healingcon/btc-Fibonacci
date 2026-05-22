@@ -221,6 +221,8 @@ canvas{display:block;width:100%;touch-action:none}
   <div id="ctrl-row">
     <button class="btn on" id="btnFib">Fib</button>
     <button class="btn on" id="btnMA">MA</button>
+    <button class="btn on" id="btnIchimoku">☁ 구름대</button>
+    <button class="btn on" id="btnGolden">★ 골크</button>
     <button class="btn on" id="btnPv">Pivot</button>
     <button class="btn on" id="btnHz">수평선</button>
     <button class="btn on" id="btnCh">채널</button>
@@ -367,7 +369,7 @@ function resizeOI(){
 }
 window.addEventListener('resize',()=>{ resizeOI(); drawOI(); });
 setTimeout(resizeOI, 100);
-let showFib=true,showMA=true,showPv=true,showHz=true,showCh=true;
+let showFib=true,showMA=true,showPv=true,showHz=true,showCh=true,showIchimoku=true,showGolden=true;
 let aiLines=[],aiFib=null,aiPivots=[],aiChannels=[],aiHzones=[];
 let lastDirection=null,alertEnabled=true;
 let audioCtx=null;
@@ -796,6 +798,48 @@ function calcSignal(cs){
     if(bb.aboveMid&&bb.pct>45&&bb.pct<88){score+=10;sigs.push({name:'BB 중상단',val:bb.pct.toFixed(0)+'%',dir:'buy',cat:'BB'});}
     else if(!bb.aboveMid&&bb.pct<55&&bb.pct>12){score-=10;sigs.push({name:'BB 중하단',val:bb.pct.toFixed(0)+'%',dir:'sell',cat:'BB'});}
   }
+
+  // ── MA20 / MA60 골든·데드크로스 ──────────────────────────
+  if(cs.length>=62){
+    const ma20arr=calcMASimple(closes,20),ma60arr=calcMASimple(closes,60);
+    const m20=ma20arr[n-1],m20p=ma20arr[n-2],m60=ma60arr[n-1],m60p=ma60arr[n-2];
+    if(m20&&m60&&m20p&&m60p){
+      const goldenCross = m20>m60 && m20p<=m60p;
+      const deadCross   = m20<m60 && m20p>=m60p;
+      const aboveMA20   = last.close>m20;
+      const aboveMA60   = last.close>m60;
+      if(goldenCross){score+=35;sigs.push({name:'MA20/60 골든크로스',val:'↑',dir:'buy',cat:'MA크로스'});}
+      else if(deadCross){score-=35;sigs.push({name:'MA20/60 데드크로스',val:'↓',dir:'sell',cat:'MA크로스'});}
+      else if(m20>m60&&aboveMA20){score+=18;sigs.push({name:'MA 정배열 (20>60)',val:'상승',dir:'buy',cat:'MA크로스'});}
+      else if(m20<m60&&!aboveMA60){score-=18;sigs.push({name:'MA 역배열 (20<60)',val:'하락',dir:'sell',cat:'MA크로스'});}
+      else{score+=m20>m60?8:-8;}
+    }
+  }
+
+  // ── 일목균형표 구름대 ──────────────────────────────────────
+  if(cs.length>=52){
+    const ichi=calcIchimoku(cs);
+    const ic=ichi[n-1],ic2=ichi[n-2];
+    if(ic?.spanA&&ic?.spanB){
+      const cloudTop=Math.max(ic.spanA,ic.spanB);
+      const cloudBot=Math.min(ic.spanA,ic.spanB);
+      const wasBelow = ic2 ? last.close > Math.max(ic2.spanA||0,ic2.spanB||0) : false;
+      const aboveCloud = last.close > cloudTop;
+      const belowCloud = last.close < cloudBot;
+      const bullCloud  = ic.spanA > ic.spanB; // 상승구름
+      // 구름 돌파 (가장 강한 신호)
+      if(aboveCloud&&bullCloud){score+=30;sigs.push({name:'☁ 구름 위 (상승구름)',val:'강세',dir:'buy',cat:'구름대'});}
+      else if(aboveCloud&&!bullCloud){score+=15;sigs.push({name:'☁ 구름 위 (하락구름)',val:'약강세',dir:'buy',cat:'구름대'});}
+      else if(belowCloud&&!bullCloud){score-=30;sigs.push({name:'☁ 구름 아래 (하락구름)',val:'약세',dir:'sell',cat:'구름대'});}
+      else if(belowCloud&&bullCloud){score-=15;sigs.push({name:'☁ 구름 아래 (상승구름)',val:'약약세',dir:'sell',cat:'구름대'});}
+      else{sigs.push({name:'☁ 구름 안 (관망)',val:'중립',dir:'caution',cat:'구름대'});}
+      // 전환선/기준선 크로스
+      if(ic.tenkan&&ic.kijun){
+        if(ic.tenkan>ic.kijun){score+=10;sigs.push({name:'전환선>기준선',val:'↑',dir:'buy',cat:'구름대'});}
+        else{score-=10;sigs.push({name:'전환선<기준선',val:'↓',dir:'sell',cat:'구름대'});}
+      }
+    }
+  }
   if(n>=11){
     const mom=(last.close-closes[n-11])/closes[n-11]*100;
     if(mom>2.5){score+=12;sigs.push({name:'강한 상승',val:'+'+mom.toFixed(1)+'%',dir:'buy',cat:'모멘텀'});}
@@ -1037,6 +1081,41 @@ function updateFibBar(){
   el.innerHTML=summary+rows;
 }
 
+/* ═══════ 일목균형표 계산 ═══════ */
+function calcIchimoku(candles){
+  const high=(arr,s,e)=>Math.max(...arr.slice(s,e).map(c=>c.high));
+  const low=(arr,s,e)=>Math.min(...arr.slice(s,e).map(c=>c.low));
+  return candles.map((_,i,a)=>{
+    const tenkan  = i>=8  ? (high(a,i-8,i+1)+low(a,i-8,i+1))/2   : null;
+    const kijun   = i>=25 ? (high(a,i-25,i+1)+low(a,i-25,i+1))/2 : null;
+    const spanA   = (tenkan&&kijun) ? (tenkan+kijun)/2 : null;
+    const spanB   = i>=51 ? (high(a,i-51,i+1)+low(a,i-51,i+1))/2 : null;
+    const chikou  = i>=26 ? a[i-26].close : null;
+    return {tenkan,kijun,spanA,spanB,chikou};
+  });
+}
+
+/* ═══════ MA20 / MA60 골든크로스 감지 ═══════ */
+function calcMASimple(closes,period){
+  return closes.map((_,i)=>{
+    if(i<period-1) return null;
+    return closes.slice(i-period+1,i+1).reduce((a,b)=>a+b,0)/period;
+  });
+}
+function detectGoldenCross(candles){
+  if(candles.length<62) return null;
+  const closes=candles.map(c=>c.close);
+  const ma20=calcMASimple(closes,20);
+  const ma60=calcMASimple(closes,60);
+  const last=candles.length-1;
+  const prev=last-1;
+  // 현재 골든/데드크로스 상태
+  const isGolden = ma20[last]>ma60[last];
+  const wasGolden = ma20[prev]>ma60[prev];
+  const justCrossed = isGolden!==wasGolden; // 방금 크로스
+  return {ma20,ma60,isGolden,justCrossed,crossIdx:justCrossed?last:null};
+}
+
 /* ═══════ DRAW ═══════ */
 function draw(){
   const a=area(),W=mc.clientWidth,H=CH();
@@ -1061,6 +1140,147 @@ function draw(){
       vis.forEach((c,i)=>{const gi=st+i;if(gi>=ea.length)return;const y=p2y(ea[gi],mn,mx,a),x=i2x(i,N,a);if(first){ctx.moveTo(x,y);first=false;}else ctx.lineTo(x,y);});
       ctx.stroke();ctx.setLineDash([]);
     });
+  }
+
+  // ── MA20 / MA60 (실선) + 골든/데드크로스 ──────────────────
+  if(showGolden && candles.length>=62){
+    const st=Math.max(0,candles.length-N);
+    const gc=detectGoldenCross(candles);
+    if(gc){
+      const {ma20,ma60,isGolden,justCrossed,crossIdx}=gc;
+
+      // MA20 — 하늘색 실선
+      ctx.strokeStyle='rgba(56,189,248,.85)';ctx.lineWidth=1.5;ctx.setLineDash([]);
+      ctx.beginPath();let f1=true;
+      vis.forEach((c,i)=>{const gi=st+i;if(!ma20[gi])return;const y=p2y(ma20[gi],mn,mx,a),x=i2x(i,N,a);f1?(ctx.moveTo(x,y),f1=false):ctx.lineTo(x,y);});
+      ctx.stroke();
+
+      // MA60 — 보라색 실선
+      ctx.strokeStyle='rgba(168,85,247,.85)';ctx.lineWidth=1.5;
+      ctx.beginPath();let f2=true;
+      vis.forEach((c,i)=>{const gi=st+i;if(!ma60[gi])return;const y=p2y(ma60[gi],mn,mx,a),x=i2x(i,N,a);f2?(ctx.moveTo(x,y),f2=false):ctx.lineTo(x,y);});
+      ctx.stroke();
+
+      // MA 라벨 (우측)
+      const lastI=candles.length-1;
+      if(ma20[lastI]){
+        const y20=p2y(ma20[lastI],mn,mx,a);
+        ctx.fillStyle='rgba(56,189,248,.9)';ctx.fillRect(a.x1+1,y20-8,34,14);
+        ctx.fillStyle='#000';ctx.font='bold 9px Courier New';ctx.textAlign='left';
+        ctx.fillText('MA20',a.x1+3,y20+3);
+      }
+      if(ma60[lastI]){
+        const y60=p2y(ma60[lastI],mn,mx,a);
+        ctx.fillStyle='rgba(168,85,247,.9)';ctx.fillRect(a.x1+1,y60-8,34,14);
+        ctx.fillStyle='#fff';ctx.font='bold 9px Courier New';ctx.textAlign='left';
+        ctx.fillText('MA60',a.x1+3,y60+3);
+      }
+
+      // 골든/데드크로스 발생 위치 표시
+      if(justCrossed&&crossIdx!==null){
+        const ri=crossIdx-st;
+        if(ri>=0&&ri<N){
+          const x=i2x(ri,N,a);
+          const price=candles[crossIdx].close;
+          const y=p2y(price,mn,mx,a);
+          const col=isGolden?'#fbbf24':'#f87171';
+          const label=isGolden?'GC':'DC';  // GC=골든크로스, DC=데드크로스
+          // 마커 원
+          ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);
+          ctx.fillStyle=col+'33';ctx.fill();
+          ctx.strokeStyle=col;ctx.lineWidth=2;ctx.stroke();
+          // 라벨
+          ctx.fillStyle=col;ctx.font='bold 10px Courier New';ctx.textAlign='center';
+          ctx.fillText(label,x,isGolden?y-12:y+20);
+        }
+      }
+
+      // 현재 상태 뱃지 (좌상단)
+      if(!mob){
+        const bx=a.x0+6, by=a.y0+6;
+        const bc=isGolden?'rgba(251,191,36,.18)':'rgba(248,113,113,.18)';
+        const tc=isGolden?'#fbbf24':'#f87171';
+        const bt=isGolden?'★ 골든크로스 (MA20>MA60)':'✕ 데드크로스 (MA20<MA60)';
+        ctx.fillStyle=bc;
+        ctx.beginPath();ctx.roundRect(bx,by,mob?80:180,18,4);ctx.fill();
+        ctx.fillStyle=tc;ctx.font='bold 9px Courier New';ctx.textAlign='left';
+        ctx.fillText(bt,bx+6,by+12);
+      }
+    }
+  }
+
+  // ── 일목균형표 구름대 ──────────────────────────────────────
+  if(showIchimoku && candles.length>=52){
+    const st=Math.max(0,candles.length-N);
+    const ichi=calcIchimoku(candles);
+
+    // 구름 채우기 (선행스팬A vs B)
+    ctx.save();
+    for(let i=1;i<N;i++){
+      const gi=st+i;
+      if(gi>=ichi.length)break;
+      const prev=ichi[gi-1],curr=ichi[gi];
+      if(!prev.spanA||!prev.spanB||!curr.spanA||!curr.spanB)continue;
+      const x0=i2x(i-1,N,a),x1=i2x(i,N,a);
+      const pA=p2y(prev.spanA,mn,mx,a),pB=p2y(prev.spanB,mn,mx,a);
+      const cA=p2y(curr.spanA,mn,mx,a),cB=p2y(curr.spanB,mn,mx,a);
+      // 상승구름=초록(spanA>spanB), 하락구름=빨강(spanB>spanA)
+      const bullish=prev.spanA>prev.spanB;
+      ctx.fillStyle=bullish?'rgba(38,166,154,.12)':'rgba(239,83,80,.10)';
+      ctx.beginPath();
+      ctx.moveTo(x0,pA);ctx.lineTo(x1,cA);
+      ctx.lineTo(x1,cB);ctx.lineTo(x0,pB);
+      ctx.closePath();ctx.fill();
+    }
+
+    // 선행스팬A 라인 (초록 점선)
+    ctx.strokeStyle='rgba(38,166,154,.55)';ctx.lineWidth=1;ctx.setLineDash([4,3]);
+    ctx.beginPath();let fA=true;
+    vis.forEach((_,i)=>{const gi=st+i;if(!ichi[gi]?.spanA)return;const y=p2y(ichi[gi].spanA,mn,mx,a),x=i2x(i,N,a);fA?(ctx.moveTo(x,y),fA=false):ctx.lineTo(x,y);});
+    ctx.stroke();
+
+    // 선행스팬B 라인 (빨강 점선)
+    ctx.strokeStyle='rgba(239,83,80,.55)';
+    ctx.beginPath();let fB=true;
+    vis.forEach((_,i)=>{const gi=st+i;if(!ichi[gi]?.spanB)return;const y=p2y(ichi[gi].spanB,mn,mx,a),x=i2x(i,N,a);fB?(ctx.moveTo(x,y),fB=false):ctx.lineTo(x,y);});
+    ctx.stroke();
+
+    // 전환선 (빨강 실선)
+    ctx.strokeStyle='rgba(255,100,100,.7)';ctx.lineWidth=1;ctx.setLineDash([]);
+    ctx.beginPath();let fT=true;
+    vis.forEach((_,i)=>{const gi=st+i;if(!ichi[gi]?.tenkan)return;const y=p2y(ichi[gi].tenkan,mn,mx,a),x=i2x(i,N,a);fT?(ctx.moveTo(x,y),fT=false):ctx.lineTo(x,y);});
+    ctx.stroke();
+
+    // 기준선 (파랑 실선)
+    ctx.strokeStyle='rgba(56,139,253,.7)';ctx.lineWidth=1.2;
+    ctx.beginPath();let fK=true;
+    vis.forEach((_,i)=>{const gi=st+i;if(!ichi[gi]?.kijun)return;const y=p2y(ichi[gi].kijun,mn,mx,a),x=i2x(i,N,a);fK?(ctx.moveTo(x,y),fK=false):ctx.lineTo(x,y);});
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 구름 돌파 신호 감지
+    const lastI=candles.length-1;
+    const curIchi=ichi[lastI];
+    const lastClose=vis[vis.length-1]?.close;
+    if(curIchi?.spanA&&curIchi?.spanB&&lastClose){
+      const cloudTop=Math.max(curIchi.spanA,curIchi.spanB);
+      const cloudBot=Math.min(curIchi.spanA,curIchi.spanB);
+      const aboveCloud=lastClose>cloudTop;
+      const belowCloud=lastClose<cloudBot;
+      const inCloud=!aboveCloud&&!belowCloud;
+      if(!mob){
+        const bx=a.x0+6, by=a.y0+28;
+        let bt='',bc='',tc='';
+        if(aboveCloud){bt='☁ 구름 위 (강세)';bc='rgba(38,166,154,.18)';tc='#34d399';}
+        else if(belowCloud){bt='☁ 구름 아래 (약세)';bc='rgba(239,83,80,.18)';tc='#f87171';}
+        else{bt='☁ 구름 안 (관망)';bc='rgba(250,204,21,.12)';tc='#fbbf24';}
+        ctx.fillStyle=bc;
+        ctx.beginPath();ctx.roundRect(bx,by,165,18,4);ctx.fill();
+        ctx.fillStyle=tc;ctx.font='bold 9px Courier New';ctx.textAlign='left';
+        ctx.fillText(bt,bx+6,by+12);
+      }
+    }
+    ctx.restore();
   }
   vis.forEach((c,i)=>{
     const x=i2x(i,N,a),bull=c.close>=c.open,col=bull?'#26a69a':'#ef5350';
@@ -1884,6 +2104,7 @@ document.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=
   else loadCandles();
 }));
 const toggles={btnFib:()=>{showFib=!showFib;updateFibBar();draw();},btnMA:()=>{showMA=!showMA;draw();},
+  btnIchimoku:()=>{showIchimoku=!showIchimoku;draw();},btnGolden:()=>{showGolden=!showGolden;draw();},
   btnPv:()=>{showPv=!showPv;draw();},btnHz:()=>{showHz=!showHz;draw();},btnCh:()=>{showCh=!showCh;draw();}};
 Object.entries(toggles).forEach(([id,fn])=>document.getElementById(id).addEventListener('click',function(){fn();this.classList.toggle('on');}));
 document.getElementById('btnAI').addEventListener('click',()=>{
