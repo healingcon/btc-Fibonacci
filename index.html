@@ -938,7 +938,7 @@ function setA(id,t,c){const e=document.getElementById(id);e.textContent=t;e.clas
 function updateFibBar(){
   const el=document.getElementById('fibbar');
   if(!aiFib||!showFib){el.style.display='none';return;}
-  el.style.cssText='display:flex;padding:5px 10px;background:#0d1117;border-top:1px solid #21262d;flex-wrap:wrap;gap:5px;align-items:center;overflow-x:auto;scrollbar-width:none';
+  el.style.cssText='display:flex;padding:8px 12px;background:#0d1117;border-top:2px solid #21262d;flex-wrap:nowrap;gap:6px;align-items:stretch;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:#30363d transparent;min-height:90px';
   const range=aiFib.high-aiFib.low;
   const lastClose=candles.length?candles[candles.length-1].close:0;
 
@@ -971,19 +971,19 @@ function updateFibBar(){
     const dist=((p-lastClose)/lastClose*100).toFixed(2);
     const distStr=(+dist>=0?'▲+':'▼')+dist+'%';
     const distCol=+dist>=0?'#3fb950':'#f85149';
-    const border=isNear?`border:1px solid ${FIB_C[i]};box-shadow:0 0 8px ${FIB_C[i]}55`:`border:1px solid ${FIB_C[i]}33`;
-    const bg=isNear?`${FIB_C[i]}25`:isKey?`${FIB_C[i]}15`:`${FIB_C[i]}0a`;
+    const border=isNear?`border:1px solid ${FIB_C[i]};box-shadow:0 0 8px ${FIB_C[i]}55`:`border:1px solid ${FIB_C[i]}44`;
+    const bg=isNear?`${FIB_C[i]}30`:isKey?`${FIB_C[i]}1a`:`${FIB_C[i]}10`;
 
-    return`<div style="background:${bg};${border};border-radius:6px;padding:5px 9px;cursor:default;transition:all .15s;min-width:90px">
-      <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
-        <div style="width:7px;height:7px;border-radius:50%;background:${FIB_C[i]};flex-shrink:0"></div>
-        <span style="font-family:'Courier New',monospace;font-size:11px;font-weight:${isKey||isNear?'700':'400'};color:${isNear?'#fff':FIB_C[i]}">${FIB_L_SHORT[i]}</span>
-        ${isKey?`<span style="font-size:8px;background:rgba(255,112,67,.2);color:#ff7043;padding:0 4px;border-radius:2px;font-weight:700">핵심</span>`:''}
-        ${isNear?`<span style="font-size:8px;background:rgba(255,255,255,.15);color:#fff;padding:0 4px;border-radius:2px">◀현재가</span>`:''}
+    return`<div style="background:${bg};${border};border-radius:7px;padding:7px 10px;cursor:default;min-width:100px;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px">
+        <div style="width:8px;height:8px;border-radius:50%;background:${FIB_C[i]};flex-shrink:0"></div>
+        <span style="font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:${isNear?'#fff':FIB_C[i]}">${FIB_L_SHORT[i]}</span>
+        ${isKey?`<span style="font-size:9px;background:rgba(255,112,67,.3);color:#ff9060;padding:0 5px;border-radius:3px;font-weight:700">핵심</span>`:''}
+        ${isNear?`<span style="font-size:9px;background:rgba(255,255,255,.2);color:#fff;padding:0 5px;border-radius:3px;font-weight:700">◀현재가</span>`:''}
       </div>
-      <div style="font-family:'Courier New',monospace;font-size:11px;color:#e6edf3;font-weight:600;margin-bottom:2px">$${fmtS(p)}</div>
-      <div style="font-size:9px;color:${distCol};margin-bottom:1px">${distStr}</div>
-      <div style="font-size:8px;color:#484f58;line-height:1.3">${FIB_DESC[i]}</div>
+      <div style="font-family:'Courier New',monospace;font-size:12px;color:#ffffff;font-weight:700;margin-bottom:2px">$${fmtS(p)}</div>
+      <div style="font-size:10px;color:${distCol};font-weight:600;margin-bottom:3px">${distStr}</div>
+      <div style="font-size:10px;color:#a0aec0;line-height:1.4;word-break:keep-all">${FIB_DESC[i]}</div>
     </div>`;
   }).join('');
 
