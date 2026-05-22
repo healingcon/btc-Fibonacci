@@ -105,7 +105,26 @@ canvas{display:block;width:100%;touch-action:none}
 /* STATUS */
 #sbar{display:flex;gap:10px;padding:6px 12px;background:#161b22;border:1px solid #30363d;border-radius:8px;font-size:10px;color:#8b949e;flex-wrap:wrap;align-items:center;overflow-x:auto;scrollbar-width:none}
 #sbar::-webkit-scrollbar{display:none}
-.dot{width:6px;height:6px;border-radius:50%;display:inline-block;animation:bl 1.4s infinite;margin-right:3px}
+.coin-btn{font-size:11px;padding:4px 9px;border:1px solid #30363d;border-radius:5px;background:#21262d;color:#8b949e;cursor:pointer;font-family:'Courier New',monospace;white-space:nowrap;flex-shrink:0;min-height:28px;transition:all .15s;}
+.coin-btn:active{transform:scale(.95)}
+.coin-btn.on{background:#1c2d3f;color:#58a6ff;border-color:#388bfd;font-weight:600}
+.coin-btn:hover{border-color:#58a6ff;color:#79c0ff}
+#coin-dropdown::-webkit-scrollbar{width:3px}
+#coin-dropdown::-webkit-scrollbar-thumb{background:#30363d;border-radius:2px}
+.coin-dd-item{display:flex;align-items:center;justify-content:space-between;padding:7px 12px;cursor:pointer;transition:background .1s;border-bottom:1px solid #21262d;gap:8px}
+.coin-dd-item:hover{background:#21262d}
+.coin-dd-item:last-child{border-bottom:none}
+.coin-dd-sym{font-family:'Courier New',monospace;font-size:12px;font-weight:600;color:#e6edf3}
+.coin-dd-name{font-size:10px;color:#8b949e}
+.coin-dd-price{font-family:'Courier New',monospace;font-size:11px;color:#58a6ff;text-align:right}
+.ex-tab{font-size:11px;padding:4px 12px;border:1px solid #30363d;border-radius:5px;background:#21262d;color:#8b949e;cursor:pointer;font-family:'Courier New',monospace;white-space:nowrap;transition:all .15s;font-weight:600;}
+.ex-tab.on{background:#0d2137;color:#58a6ff;border-color:#388bfd;}
+.ex-tab:hover{border-color:#58a6ff}
+.hl-btn.on{background:#001a2e;color:#00c2ff;border-color:#00c2ff;}
+.coin-row-wrap{display:flex;gap:4px;flex-wrap:wrap;overflow-x:auto;scrollbar-width:none;width:100%}
+.coin-row-wrap::-webkit-scrollbar{display:none}
+#coin-row::-webkit-scrollbar{display:none}
+#coin-panel-list div:hover{background:rgba(255,255,255,.06)!important;}
 @keyframes bl{0%,100%{opacity:1}50%{opacity:.2}}
 .live{color:#3fb950!important}
 .live-dot{background:#26a69a}
@@ -118,11 +137,79 @@ canvas{display:block;width:100%;touch-action:none}
 
 <div id="hdr">
   <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-    <div class="sym">BTCUSDT PERP</div>
+    <div class="sym" id="sym-label">BTCUSDT PERP</div>
     <span id="src-badge" style="background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3)">연결 중...</span>
   </div>
   <div id="pbig">--</div>
   <div id="pch" class="chg neu">--</div>
+
+  <!-- 거래소 탭 -->
+  <div style="display:flex;gap:4px;align-items:center">
+    <button id="ex-binance" class="ex-tab on" onclick="switchExchange('binance')">
+      <span style="color:#f0b90b">◆</span> Binance
+    </button>
+    <button id="ex-hl" class="ex-tab" onclick="switchExchange('hyperliquid')">
+      <span style="color:#00c2ff">⬡</span> Hyperliquid
+    </button>
+  </div>
+
+  <!-- 코인 선택 버튼 -->
+  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <button id="coin-picker-btn" onclick="toggleCoinPanel()" style="
+      display:flex;align-items:center;gap:8px;
+      background:#21262d;border:1px solid #388bfd;border-radius:8px;
+      color:#e6edf3;font-family:'Courier New',monospace;font-size:13px;
+      padding:6px 14px;cursor:pointer;min-width:150px;justify-content:space-between;
+      transition:all .15s;">
+      <span id="coin-picker-label">₿ BTC</span>
+      <span style="color:#58a6ff;font-size:11px">▼ 변경</span>
+    </button>
+    <!-- 직접 입력 -->
+    <input id="coin-search" type="text" placeholder="직접 입력..." autocomplete="off" autocorrect="off" autocapitalize="off"
+      style="background:#21262d;border:1px solid #30363d;border-radius:8px;color:#e6edf3;
+             font-family:'Courier New',monospace;font-size:12px;padding:6px 10px;
+             width:110px;outline:none;transition:border .15s"
+      onfocus="this.style.borderColor='#388bfd'"
+      onblur="this.style.borderColor='#30363d'"
+      oninput="filterCoins(this.value)"
+      onkeydown="handleCoinSearchKey(event)">
+  </div>
+
+  <!-- 코인 선택 모달 패널 -->
+  <div id="coin-panel" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:8888;background:rgba(0,0,0,.7);backdrop-filter:blur(4px)" onclick="closeCoinPanel(event)">
+    <div style="position:absolute;bottom:0;left:0;right:0;background:#161b22;border-radius:16px 16px 0 0;
+      border-top:1px solid #30363d;max-height:75vh;display:flex;flex-direction:column;
+      box-shadow:0 -8px 40px rgba(0,0,0,.8)" onclick="event.stopPropagation()">
+
+      <!-- 패널 헤더 -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px;flex-shrink:0">
+        <div style="font-family:'Courier New',monospace;font-size:13px;font-weight:700;color:#e6edf3">코인 선택</div>
+        <div style="display:flex;gap:6px">
+          <button id="panel-ex-binance" class="ex-tab on" onclick="switchExchangePanel('binance')">◆ Binance</button>
+          <button id="panel-ex-hl" class="ex-tab" onclick="switchExchangePanel('hyperliquid')">⬡ HL</button>
+        </div>
+        <button onclick="hideCoinPanel()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer;padding:0 4px;line-height:1">✕</button>
+      </div>
+
+      <!-- 검색바 -->
+      <div style="padding:0 16px 10px;flex-shrink:0">
+        <div style="position:relative">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;color:#484f58">🔍</span>
+          <input id="panel-search" type="text" placeholder="코인 검색..." autocomplete="off"
+            style="width:100%;background:#21262d;border:1px solid #30363d;border-radius:8px;
+                   color:#e6edf3;font-family:'Courier New',monospace;font-size:13px;
+                   padding:8px 10px 8px 32px;outline:none;box-sizing:border-box;transition:border .15s"
+            onfocus="this.style.borderColor='#388bfd'"
+            onblur="this.style.borderColor='#30363d'"
+            oninput="filterPanelCoins(this.value)">
+        </div>
+      </div>
+
+      <!-- 코인 목록 -->
+      <div id="coin-panel-list" style="overflow-y:auto;flex:1;padding:0 8px 20px"></div>
+    </div>
+  </div>
+
   <div id="tf-row">
     <button class="btn on" data-tf="1m">1m</button>
     <button class="btn" data-tf="5m">5m</button>
@@ -220,6 +307,16 @@ canvas{display:block;width:100%;touch-action:none}
   <div id="spin-wrap"><div class="spinner"></div><div id="spin-msg">연결 중...</div></div>
 </div>
 
+<!-- OI 패널 -->
+<div id="oi-wrap" style="position:relative;background:#0d1117;border-top:1px solid #21262d;height:90px;flex-shrink:0">
+  <canvas id="oic" style="position:absolute;top:0;left:0;width:100%;height:100%"></canvas>
+  <div id="oi-label" style="position:absolute;top:4px;left:8px;font-family:'Courier New',monospace;font-size:9px;color:#484f58;pointer-events:none;z-index:2">
+    OI <span id="oi-val" style="color:#58a6ff">--</span>
+    <span id="oi-chg" style="margin-left:6px"></span>
+  </div>
+  <div id="oi-signal" style="position:absolute;top:4px;right:10px;font-family:'Courier New',monospace;font-size:9px;pointer-events:none;z-index:2"></div>
+</div>
+
 <div id="aip">
   <span class="albl">AI</span>
   <span id="a-trend" class="abadge a-neu">--</span>
@@ -250,7 +347,24 @@ const FIB_C=['#9e9e9e','#29b6f6','#26a69a','#f0b90b','#ff7043','#ef5350','#b71c1
 const FIB_L=['0%','23.6%','38.2%','50.0%','61.8%','78.6%','100%'];
 const FAPI='https://fapi.binance.com/fapi/v1';
 
-let candles=[],tf='1m',openPrice=0;
+let candles=[],tf='1m',openPrice=0,currentSym='BTCUSDT';
+
+/* ═══════ OI 데이터 ═══════ */
+let oiHistory = [];   // [{t, oi}]
+let oiPollId = null;
+const OIC = document.getElementById('oic');
+const oiCtx = OIC.getContext('2d');
+
+function resizeOI(){
+  const dpr = window.devicePixelRatio||1;
+  const W = OIC.parentElement.clientWidth;
+  const H = OIC.parentElement.clientHeight;
+  OIC.width = W*dpr; OIC.height = H*dpr;
+  OIC.style.width = W+'px'; OIC.style.height = H+'px';
+  oiCtx.scale(dpr,dpr);
+}
+window.addEventListener('resize',()=>{ resizeOI(); drawOI(); });
+setTimeout(resizeOI, 100);
 let showFib=true,showMA=true,showPv=true,showHz=true,showCh=true;
 let aiLines=[],aiFib=null,aiPivots=[],aiChannels=[],aiHzones=[];
 let lastDirection=null,alertEnabled=true;
@@ -345,26 +459,24 @@ function startPolling(){
   // 1. 가격 폴링: 3초마다 — WS 살아있어도 항상 실행 (백업 보장)
   pricePollId=setInterval(async()=>{
     try{
-      const d=await fetchJSON(`${FAPI}/ticker/price?symbol=BTCUSDT`,5000);
+      const d=await fetchJSON(`${FAPI}/ticker/price?symbol=${currentSym}`,5000);
       const p=+d.price;
       if(p>0) updatePrice(p,0,0,0,0);
     }catch(e){}
   },3000);
 
-  // 2. 24H ticker: 8초마다 — 고/저/거래량/openPrice 업데이트
   ticker24Id=setInterval(async()=>{
     try{
-      const d=await fetchJSON(`${FAPI}/ticker/24hr?symbol=BTCUSDT`,8000);
+      const d=await fetchJSON(`${FAPI}/ticker/24hr?symbol=${currentSym}`,8000);
       updatePrice(+(d.lastPrice||0),+(d.highPrice||0),+(d.lowPrice||0),+(d.quoteVolume||0),+(d.openPrice||0));
       if(!wsAlive) setStatus('REST 폴링 · Binance Futures','rest');
     }catch(e){}
   },8000);
 
-  // 3. 캔들 폴링: 10초마다 — WS 없을 때만
   candlePollId=setInterval(async()=>{
     if(wsAlive)return;
     try{
-      const data=await fetchJSON(`${FAPI}/klines?symbol=BTCUSDT&interval=${tf}&limit=5`,8000);
+      const data=await fetchJSON(`${FAPI}/klines?symbol=${currentSym}&interval=${tf}&limit=5`,8000);
       if(!Array.isArray(data))return;
       data.forEach(d=>{
         const c={time:+d[0],open:+d[1],high:+d[2],low:+d[3],close:+d[4],vol:+d[5]};
@@ -386,12 +498,14 @@ function stopPolling(){
 
 /* ═══════ WebSocket ═══════ */
 let wsRetry=0;
-const WS_URLS=tf=>[
-  // aggTrade = 체결마다 가격 업데이트 (초단위 이상), miniTicker = 1초마다 고저가
-  `wss://fstream.binance.com/stream?streams=btcusdt@aggTrade/btcusdt@kline_${tf}/btcusdt@miniTicker`,
-  `wss://fstream1.binance.com/stream?streams=btcusdt@aggTrade/btcusdt@kline_${tf}/btcusdt@miniTicker`,
-  `wss://fstream.binance.com/stream?streams=btcusdt@aggTrade/btcusdt@kline_${tf}/btcusdt@miniTicker`,
-];
+const WS_URLS=tf=>{
+  const s=currentSym.toLowerCase();
+  return[
+    `wss://fstream.binance.com/stream?streams=${s}@aggTrade/${s}@kline_${tf}/${s}@miniTicker`,
+    `wss://fstream1.binance.com/stream?streams=${s}@aggTrade/${s}@kline_${tf}/${s}@miniTicker`,
+    `wss://fstream2.binance.com/stream?streams=${s}@aggTrade/${s}@kline_${tf}/${s}@miniTicker`,
+  ];
+};
 
 function connectWS(){
   if(ws){try{ws.close();}catch(e){}}
@@ -489,15 +603,14 @@ async function loadCandles(){
 
   // 초기 24H 데이터 먼저 가져오기
   try{
-    const d=await fetchJSON(`${FAPI}/ticker/24hr?symbol=BTCUSDT`,10000);
+    const d=await fetchJSON(`${FAPI}/ticker/24hr?symbol=${currentSym}`,10000);
     updatePrice(+(d.lastPrice||0),+(d.highPrice||0),+(d.lowPrice||0),+(d.quoteVolume||0),+(d.openPrice||0));
   }catch(e){}
 
-  // 캔들 로드 시도
   let loaded=false;
   const klineURLs=[
-    `${FAPI}/klines?symbol=BTCUSDT&interval=${tf}&limit=300`,
-    `https://fapi.binance.com/fapi/v2/klines?symbol=BTCUSDT&interval=${tf}&limit=300`,
+    `${FAPI}/klines?symbol=${currentSym}&interval=${tf}&limit=300`,
+    `https://fapi.binance.com/fapi/v2/klines?symbol=${currentSym}&interval=${tf}&limit=300`,
   ];
   for(let i=0;i<klineURLs.length;i++){
     try{
@@ -527,6 +640,8 @@ async function loadCandles(){
 
   // WS 연결 시도 (폴링과 병행)
   connectWS();
+  // OI 폴링 시작
+  startOIPoll();
 }
 
 /* ═══════ 피보나치 레벨 근접 알림 ═══════ */
@@ -993,9 +1108,633 @@ mc.addEventListener('touchstart',e=>{e.preventDefault();const r=mc.getBoundingCl
 mc.addEventListener('touchmove',e=>{e.preventDefault();const r=mc.getBoundingClientRect(),t=e.touches[0];drawOverlay(t.clientX-r.left,t.clientY-r.top);},{passive:false});
 mc.addEventListener('touchend',()=>{clearTimeout(tTimer);tTimer=setTimeout(hideTip,1800);});
 
+/* ═══════ OI (미결제약정) ═══════ */
+async function fetchOIHistory(){
+  if(currentExchange!=='binance') return;
+  try{
+    // 히스토리 OI (캔들과 동일 타임프레임)
+    const url=`${FAPI}/openInterestHist?symbol=${currentSym}&period=${tf}&limit=100`;
+    const r=await fetch(url);
+    const data=await r.json();
+    if(!Array.isArray(data)) return;
+    oiHistory=data.map(d=>({t:+d.timestamp, oi:+d.sumOpenInterest, oiUsd:+d.sumOpenInterestValue}));
+    drawOI();
+    updateOISignal();
+  }catch(e){ console.warn('OI fetch 실패:',e); }
+}
+
+async function fetchOICurrent(){
+  if(currentExchange!=='binance') return;
+  try{
+    const r=await fetch(`${FAPI}/openInterest?symbol=${currentSym}`);
+    const d=await r.json();
+    if(!d.openInterest) return;
+    const oi=+d.openInterest;
+    const t=Date.now();
+    // 히스토리에 현재값 추가/업데이트
+    if(oiHistory.length&&oiHistory[oiHistory.length-1].t>t-60000){
+      oiHistory[oiHistory.length-1]={t,oi,oiUsd:oi*(candles.at(-1)?.close||0)};
+    } else {
+      oiHistory.push({t,oi,oiUsd:oi*(candles.at(-1)?.close||0)});
+      if(oiHistory.length>200) oiHistory.shift();
+    }
+    drawOI();
+    updateOISignal();
+  }catch(e){}
+}
+
+function startOIPoll(){
+  if(oiPollId) clearInterval(oiPollId);
+  fetchOIHistory();
+  oiPollId=setInterval(()=>{ fetchOICurrent(); }, 10000); // 10초마다
+}
+function stopOIPoll(){
+  if(oiPollId){ clearInterval(oiPollId); oiPollId=null; }
+  oiHistory=[];
+  drawOI();
+}
+
+function drawOI(){
+  const W=OIC.parentElement.clientWidth;
+  const H=OIC.parentElement.clientHeight;
+  oiCtx.clearRect(0,0,W,H);
+  oiCtx.fillStyle='#0d1117';
+  oiCtx.fillRect(0,0,W,H);
+
+  if(!oiHistory.length){
+    oiCtx.fillStyle='#30363d';
+    oiCtx.font='10px Courier New';
+    oiCtx.textAlign='center';
+    oiCtx.fillText(currentExchange==='binance'?'OI 로딩 중...':'OI: Binance 전용',W/2,H/2+3);
+    return;
+  }
+
+  const PAD={l:8,r:70,t:18,b:4};
+  const cw=W-PAD.l-PAD.r, ch=H-PAD.t-PAD.b;
+
+  // 보이는 캔들 수에 맞게 OI 슬라이싱
+  const vis=getVis();
+  const N=Math.min(oiHistory.length, vis.length||100);
+  const slice=oiHistory.slice(-N);
+
+  const mn=Math.min(...slice.map(d=>d.oi));
+  const mx=Math.max(...slice.map(d=>d.oi));
+  const range=mx-mn||1;
+  const pad=range*0.1;
+  const lo=mn-pad, hi=mx+pad;
+
+  const toY=v=>PAD.t+ch*(1-(v-lo)/(hi-lo));
+  const toX=i=>PAD.l+(i/(N-1||1))*cw;
+
+  // 그리드
+  oiCtx.strokeStyle='rgba(255,255,255,.04)';
+  oiCtx.lineWidth=.5;
+  [0.25,0.5,0.75].forEach(r=>{
+    const y=PAD.t+ch*r;
+    oiCtx.beginPath();oiCtx.moveTo(PAD.l,y);oiCtx.lineTo(W-PAD.r,y);oiCtx.stroke();
+  });
+
+  // OI 변화 컬러 (증가=초록, 감소=빨강)
+  // 막대 그래프
+  const bw=Math.max(1,(cw/N)-1);
+  slice.forEach((d,i)=>{
+    const prev=slice[i-1];
+    const isUp=!prev||d.oi>=prev.oi;
+    const y=toY(d.oi);
+    const baseY=toY(lo);
+    const x=toX(i)-bw/2;
+    oiCtx.fillStyle=isUp?'rgba(38,166,154,.5)':'rgba(239,83,80,.45)';
+    oiCtx.fillRect(x, y, bw, baseY-y);
+  });
+
+  // OI 라인
+  oiCtx.beginPath();
+  slice.forEach((d,i)=>{
+    const x=toX(i), y=toY(d.oi);
+    i===0?oiCtx.moveTo(x,y):oiCtx.lineTo(x,y);
+  });
+  oiCtx.strokeStyle='#58a6ff';
+  oiCtx.lineWidth=1.5;
+  oiCtx.stroke();
+
+  // 가격 상승 시 OI 변화 시각화 (캔들과 비교)
+  if(vis.length&&slice.length){
+    const lastOI=slice.at(-1);
+    const prevOI=slice.at(-5)||slice[0];
+    const oiChgPct=((lastOI.oi-prevOI.oi)/prevOI.oi*100);
+
+    // 현재 OI 라벨
+    const oiK=lastOI.oi>1000?(lastOI.oi/1000).toFixed(1)+'K':lastOI.oi.toFixed(0);
+    document.getElementById('oi-val').textContent=oiK;
+    const chgEl=document.getElementById('oi-chg');
+    chgEl.textContent=(oiChgPct>=0?'+':'')+oiChgPct.toFixed(2)+'%';
+    chgEl.style.color=oiChgPct>=0?'#26a69a':'#ef5350';
+
+    // 현재값 마커
+    const lastX=toX(N-1), lastY=toY(lastOI.oi);
+    oiCtx.fillStyle='#58a6ff';
+    oiCtx.beginPath();oiCtx.arc(lastX,lastY,3,0,Math.PI*2);oiCtx.fill();
+
+    // 우측 라벨
+    oiCtx.fillStyle='rgba(13,17,23,.9)';
+    oiCtx.fillRect(W-PAD.r+1,lastY-8,PAD.r-2,16);
+    oiCtx.fillStyle='#79c0ff';
+    oiCtx.font='bold 9px Courier New';
+    oiCtx.textAlign='left';
+    oiCtx.fillText(oiK,W-PAD.r+4,lastY+3);
+  }
+
+  // 최고/최저 표시
+  oiCtx.font='8px Courier New';
+  oiCtx.fillStyle='rgba(255,255,255,.3)';
+  oiCtx.textAlign='left';
+  const mxIdx=slice.indexOf(slice.reduce((a,b)=>a.oi>b.oi?a:b));
+  const mnIdx=slice.indexOf(slice.reduce((a,b)=>a.oi<b.oi?a:b));
+  if(mxIdx>=0){const x=toX(mxIdx),y=toY(slice[mxIdx].oi);oiCtx.fillStyle='rgba(88,166,255,.6)';oiCtx.fillText('▲'+(slice[mxIdx].oi>1000?(slice[mxIdx].oi/1000).toFixed(1)+'K':slice[mxIdx].oi.toFixed(0)),Math.min(x,W-PAD.r-40),Math.max(y-4,PAD.t+10));}
+  if(mnIdx>=0){const x=toX(mnIdx),y=toY(slice[mnIdx].oi);oiCtx.fillStyle='rgba(239,83,80,.6)';oiCtx.fillText('▼'+(slice[mnIdx].oi>1000?(slice[mnIdx].oi/1000).toFixed(1)+'K':slice[mnIdx].oi.toFixed(0)),Math.min(x,W-PAD.r-40),Math.min(y+10,H-PAD.b-2));}
+}
+
+function updateOISignal(){
+  if(!oiHistory.length||!candles.length) return;
+  const sigEl=document.getElementById('oi-signal');
+  const N=Math.min(oiHistory.length,5);
+  const recent=oiHistory.slice(-N);
+  const oldest=oiHistory.slice(-20,-15);
+
+  const oiUp=recent.at(-1).oi > (oldest[0]?.oi||recent[0].oi);
+  const lastC=candles.at(-1);
+  const prev5C=candles.at(-6)||candles[0];
+  const priceUp=lastC.close > prev5C.close;
+
+  // 펀딩비 기반 신호
+  let sig='', col='#8b949e', bg='rgba(139,148,158,.1)';
+
+  if(priceUp&&oiUp){
+    sig='📈 가격↑ OI↑ 강한상승'; col='#3fb950'; bg='rgba(63,185,80,.15)';
+  } else if(priceUp&&!oiUp){
+    sig='⚠ 가격↑ OI↓ 숏청산반등'; col='#e3b341'; bg='rgba(227,179,65,.15)';
+  } else if(!priceUp&&oiUp){
+    sig='📉 가격↓ OI↑ 강한하락'; col='#f85149'; bg='rgba(248,81,73,.15)';
+  } else {
+    sig='⚠ 가격↓ OI↓ 롱청산조정'; col='#e3b341'; bg='rgba(227,179,65,.15)';
+  }
+
+  sigEl.textContent=sig;
+  sigEl.style.cssText=`position:absolute;top:4px;right:10px;font-family:'Courier New',monospace;font-size:9px;pointer-events:none;z-index:2;color:${col};background:${bg};padding:2px 6px;border-radius:3px`;
+}
+
+/* ═══════ 거래소 관리 ═══════ */
+let currentExchange = 'binance';
+const HL_API = 'https://api.hyperliquid.xyz/info';
+const HL_TF_MAP = {'1m':'1m','5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'1d'};
+
+// CORS 우회: 여러 엔드포인트 순차 시도
+async function hlPost(body) {
+  const endpoints = [
+    'https://api.hyperliquid.xyz/info',
+    'https://api-ui.hyperliquid.xyz/info',
+  ];
+  let lastErr;
+  for (const url of endpoints) {
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        mode: 'cors',
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.json();
+    } catch(e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+const HL_COIN_LIST = [
+  {sym:'BTC',  name:'Bitcoin',      icon:'₿'},
+  {sym:'ETH',  name:'Ethereum',     icon:'Ξ'},
+  {sym:'SOL',  name:'Solana',       icon:'◎'},
+  {sym:'BNB',  name:'BNB',          icon:'⬡'},
+  {sym:'XRP',  name:'Ripple',       icon:'✕'},
+  {sym:'DOGE', name:'Dogecoin',     icon:'Ð'},
+  {sym:'ADA',  name:'Cardano',      icon:'₳'},
+  {sym:'AVAX', name:'Avalanche',    icon:'▲'},
+  {sym:'LINK', name:'Chainlink',    icon:'⬡'},
+  {sym:'NEAR', name:'NEAR',         icon:'◈'},
+  {sym:'SUI',  name:'Sui',          icon:'◎'},
+  {sym:'PEPE', name:'Pepe',         icon:'🐸'},
+  {sym:'WIF',  name:'dogwifhat',    icon:'🐕'},
+  {sym:'ARB',  name:'Arbitrum',     icon:'◈'},
+  {sym:'OP',   name:'Optimism',     icon:'🔴'},
+  {sym:'APT',  name:'Aptos',        icon:'▲'},
+  {sym:'INJ',  name:'Injective',    icon:'◆'},
+  {sym:'HYPE', name:'Hyperliquid',  icon:'⬡'},
+  {sym:'PURR', name:'PURR',         icon:'🐱'},
+  {sym:'TRUMP',name:'TRUMP',        icon:'🎩'},
+  {sym:'kSHIB',name:'SHIB',         icon:'🐕'},
+  {sym:'TRX',  name:'TRON',         icon:'◆'},
+  {sym:'ATOM', name:'Cosmos',       icon:'⚛'},
+  {sym:'DOT',  name:'Polkadot',     icon:'●'},
+  {sym:'LTC',  name:'Litecoin',     icon:'Ł'},
+];
+
+// HL 캔들 로드 (POST /info)
+async function loadHLCandles(sym, interval) {
+  const now = Date.now();
+  const tfMs = {'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000,'1d':86400000};
+  const ms = tfMs[interval] || 60000;
+  const startTime = now - ms * 300;
+
+  const data = await hlPost({
+    type: 'candleSnapshot',
+    req: { coin: sym, interval: HL_TF_MAP[interval], startTime, endTime: now }
+  });
+  if (!Array.isArray(data) || data.length < 2) throw new Error('캔들 없음');
+  return data.map(d => ({
+    time: +d.t, open: +d.o, high: +d.h, low: +d.l, close: +d.c, vol: +d.v
+  }));
+}
+
+// HL 현재가 (REST)
+async function fetchHLPrice(sym) {
+  const data = await hlPost({ type: 'allMids' });
+  return data[sym] ? +data[sym] : 0;
+}
+
+// HL WebSocket
+let hlWs = null;
+let hlWsRetry = 0;
+
+function connectHLWS(sym) {
+  if (hlWs) { try { hlWs.close(); } catch(e){} }
+  try {
+    hlWs = new WebSocket('wss://api.hyperliquid.xyz/ws');
+  } catch(e) { scheduleHLRetry(sym); return; }
+
+  hlWs.onopen = () => {
+    hlWsRetry = 0;
+    // 캔들 구독
+    hlWs.send(JSON.stringify({
+      method: 'subscribe',
+      subscription: { type: 'candle', coin: sym, interval: HL_TF_MAP[tf] }
+    }));
+    // 현재가 구독
+    hlWs.send(JSON.stringify({
+      method: 'subscribe',
+      subscription: { type: 'trades', coin: sym }
+    }));
+    setStatus('WebSocket 실시간 · Hyperliquid', 'ws');
+  };
+
+  hlWs.onmessage = e => {
+    try {
+      const msg = JSON.parse(e.data);
+      const ch = msg.channel, d = msg.data;
+      if (!ch || !d) return;
+
+      // 캔들 업데이트
+      if (ch === 'candle' && d.s === sym) {
+        const c = { time:+d.t, open:+d.o, high:+d.h, low:+d.l, close:+d.c, vol:+d.v };
+        if (candles.length && candles[candles.length-1].time === c.time)
+          candles[candles.length-1] = c;
+        else { candles.push(c); if(candles.length>800) candles.shift(); }
+        draw();
+        if (candles.length % 8 === 0) { runAI(getVis()); draw(); }
+      }
+
+      // 실시간 체결가
+      if (ch === 'trades' && Array.isArray(d) && d.length) {
+        const p = +d[d.length-1].px;
+        if (p > 0) {
+          updatePrice(p, 0, 0, 0, 0);
+          if (candles.length) {
+            candles[candles.length-1].close = p;
+            if (p > candles[candles.length-1].high) candles[candles.length-1].high = p;
+            if (p < candles[candles.length-1].low)  candles[candles.length-1].low = p;
+            checkFibAlert(p);
+            draw();
+          }
+        }
+      }
+    } catch(err) {}
+  };
+
+  hlWs.onclose = () => scheduleHLRetry(sym);
+  hlWs.onerror = () => { try{hlWs.close();}catch(e){} };
+}
+
+function scheduleHLRetry(sym) {
+  hlWsRetry++;
+  const delay = Math.min(hlWsRetry * 3000, 15000);
+  setStatus(`HL WS 재연결 대기 (${delay/1000}s)`, 'rest');
+  setTimeout(() => { if(currentExchange==='hyperliquid') connectHLWS(sym); }, delay);
+}
+
+// HL 폴링 (WS 백업)
+let hlPollId = null;
+function startHLPolling(sym) {
+  if (hlPollId) clearInterval(hlPollId);
+  hlPollId = setInterval(async () => {
+    try {
+      const p = await fetchHLPrice(sym);
+      if (p > 0) {
+        updatePrice(p, 0, 0, 0, 0);
+        if (candles.length) {
+          candles[candles.length-1].close = p;
+          draw();
+        }
+      }
+    } catch(e) {}
+  }, 3000);
+}
+function stopHLPolling() {
+  if (hlPollId) { clearInterval(hlPollId); hlPollId = null; }
+}
+
+// HL 전체 로드
+async function loadHLChart(sym) {
+  candles = []; aiLines = []; aiFib = null; aiPivots = []; aiChannels = []; aiHzones = [];
+  document.getElementById('spin-wrap').style.display = 'flex';
+  document.getElementById('spin-msg').textContent = `Hyperliquid ${sym} 로딩 중...`;
+  setStatus('데이터 로딩 중...', '');
+
+  // 최대 3번 재시도
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      document.getElementById('spin-msg').textContent =
+        attempt > 1 ? `재시도 중... (${attempt}/3)` : `HL ${sym} 캔들 로딩...`;
+
+      const klines = await loadHLCandles(sym, tf);
+      candles = klines;
+
+      // 현재가 가져오기
+      try {
+        const p = await fetchHLPrice(sym);
+        if (p > 0) updatePrice(p, 0, 0, 0, candles[0]?.open || 0);
+        else {
+          const last = candles[candles.length-1];
+          updatePrice(last.close, last.high, last.low, 0, candles[0].open);
+        }
+      } catch(e) {
+        const last = candles[candles.length-1];
+        updatePrice(last.close, last.high, last.low, 0, candles[0].open);
+      }
+
+      document.getElementById('spin-wrap').style.display = 'none';
+      runAI(getVis()); draw();
+      startHLPolling(sym);
+      connectHLWS(sym);
+      return; // 성공 시 종료
+
+    } catch(e) {
+      lastErr = e;
+      console.error(`HL 로드 시도 ${attempt} 실패:`, e);
+      if (attempt < 3) await new Promise(r => setTimeout(r, 1500 * attempt));
+    }
+  }
+
+  // 3번 모두 실패
+  document.getElementById('spin-msg').textContent =
+    `⚠ HL API 연결 실패\nSafari → 설정 → 무선데이터 확인\n(${lastErr?.message||'CORS 오류'})`;
+  console.error('HL load error:', lastErr);
+
+  // 폴링만으로 가격은 시도
+  startHLPolling(sym);
+}
+
+/* ═══════ 거래소 전환 ═══════ */
+function switchExchange(ex){
+  if(currentExchange===ex)return;
+  currentExchange=ex;
+
+  // 헤더 탭
+  document.getElementById('ex-binance').classList.toggle('on',ex==='binance');
+  document.getElementById('ex-hl').classList.toggle('on',ex==='hyperliquid');
+
+  // 패널 탭 동기화
+  const pb=document.getElementById('panel-ex-binance');
+  const ph=document.getElementById('panel-ex-hl');
+  if(pb) pb.classList.toggle('on',ex==='binance');
+  if(ph) ph.classList.toggle('on',ex==='hyperliquid');
+
+  // 배지 색상
+  const badge=document.getElementById('src-badge');
+  if(ex==='hyperliquid'){
+    badge.style.cssText='background:rgba(0,194,255,.12);color:#00c2ff;border:1px solid rgba(0,194,255,.3)';
+    badge.textContent='연결 중...';
+  } else {
+    badge.style.cssText='background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3)';
+    badge.textContent='연결 중...';
+  }
+
+  // 기존 연결 종료
+  if(ws){try{ws.close();}catch(e){}}
+  if(hlWs){try{hlWs.close();}catch(e){}}
+  stopPolling(); stopHLPolling(); stopOIPoll();
+
+  // 기본 코인으로 전환
+  if(ex==='binance'){
+    currentSym='BTCUSDT';
+    document.getElementById('sym-label').textContent='BTCUSDT PERP';
+    document.getElementById('coin-picker-label').textContent='₿ BTC';
+    document.getElementById('oi-wrap').style.display='block';
+    loadCandles();
+  } else {
+    currentSym='BTC';
+    document.getElementById('sym-label').textContent='BTC-PERP · HL';
+    document.getElementById('coin-picker-label').textContent='₿ BTC';
+    document.getElementById('oi-wrap').style.display='none'; // HL은 OI 미지원
+    loadHLChart('BTC');
+  }
+}
+
+/* ═══════ HL 코인버튼 이벤트 ═══════ */
+document.querySelectorAll('.hl-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    if (currentExchange !== 'hyperliquid') return;
+    const sym = b.dataset.sym;
+    if (sym === currentSym) return;
+    currentSym = sym;
+    document.getElementById('sym-label').textContent = sym+'-PERP · HL';
+    document.getElementById('pbig').textContent = '--';
+    document.querySelectorAll('.hl-btn').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    if (hlWs) { try{hlWs.close();}catch(e){} }
+    stopHLPolling();
+    loadHLChart(sym);
+  });
+});
+
+/* ═══════ 심볼 전환 (Binance 전용으로 제한) ═══════ */
+const COIN_LIST = [
+  {sym:'BTCUSDT',  name:'Bitcoin',     icon:'₿'},
+  {sym:'ETHUSDT',  name:'Ethereum',    icon:'Ξ'},
+  {sym:'SOLUSDT',  name:'Solana',      icon:'◎'},
+  {sym:'BNBUSDT',  name:'BNB',         icon:'⬡'},
+  {sym:'XRPUSDT',  name:'Ripple',      icon:'✕'},
+  {sym:'DOGEUSDT', name:'Dogecoin',    icon:'Ð'},
+  {sym:'ADAUSDT',  name:'Cardano',     icon:'₳'},
+  {sym:'AVAXUSDT', name:'Avalanche',   icon:'▲'},
+  {sym:'DOTUSDT',  name:'Polkadot',    icon:'●'},
+  {sym:'LINKUSDT', name:'Chainlink',   icon:'⬡'},
+  {sym:'LTCUSDT',  name:'Litecoin',    icon:'Ł'},
+  {sym:'NEARUSDT', name:'NEAR Protocol',icon:'◈'},
+  {sym:'SUIUSDT',  name:'Sui',         icon:'◎'},
+  {sym:'PEPEUSDT', name:'Pepe',        icon:'🐸'},
+  {sym:'MATICUSDT',name:'Polygon',     icon:'⬡'},
+  {sym:'ARBUSDT',  name:'Arbitrum',    icon:'◈'},
+  {sym:'OPUSDT',   name:'Optimism',    icon:'🔴'},
+  {sym:'APTUSDT',  name:'Aptos',       icon:'▲'},
+  {sym:'INJUSDT',  name:'Injective',   icon:'◆'},
+  {sym:'WIFUSDT',  name:'dogwifhat',   icon:'🐕'},
+  {sym:'FLOKIUSDT',name:'FLOKI',       icon:'🐶'},
+  {sym:'SHIBUSDT', name:'Shiba Inu',   icon:'🐕'},
+  {sym:'TRXUSDT',  name:'TRON',        icon:'◆'},
+  {sym:'ATOMUSDT', name:'Cosmos',      icon:'⚛'},
+  {sym:'FILUSDT',  name:'Filecoin',    icon:'⬡'},
+];
+let coinPrices = {};
+
+// 가격 프리패치 (드롭다운용)
+async function fetchCoinPrices(){
+  try{
+    const r=await fetch(`https://fapi.binance.com/fapi/v1/ticker/price`);
+    const data=await r.json();
+    data.forEach(d=>{ coinPrices[d.symbol]=+d.price; });
+  }catch(e){}
+}
+fetchCoinPrices();
+
+function switchSymbol(sym){
+  if(sym===currentSym)return;
+  currentSym=sym;
+  document.getElementById('sym-label').textContent=sym+' PERP';
+  document.getElementById('pbig').textContent='--';
+  document.getElementById('pbig').style.color='#e6edf3';
+  document.getElementById('pch').textContent='--';
+  document.getElementById('pch').className='chg neu';
+  document.getElementById('sw-title').textContent='⬡ '+sym.replace('USDT','')+' 신호';
+  document.querySelectorAll('.coin-btn').forEach(b=>{b.classList.toggle('on',b.dataset.sym===sym);});
+  document.getElementById('coin-search').value='';
+  hideCoinDropdown();
+  if(ws){try{ws.close();}catch(e){}}
+  stopPolling(); stopOIPoll();
+  loadCandles();
+}
+
+// 코인버튼 이벤트 (기존 호환)
+document.querySelectorAll('.coin-btn').forEach(b=>{
+  b.addEventListener('click',()=>switchSymbol(b.dataset.sym));
+});
+
+/* ═══════ 코인 선택 모달 패널 ═══════ */
+function toggleCoinPanel(){
+  const p=document.getElementById('coin-panel');
+  p.style.display==='none'?showCoinPanel():hideCoinPanel();
+}
+function showCoinPanel(){
+  const p=document.getElementById('coin-panel');
+  p.style.display='block';
+  document.getElementById('panel-search').value='';
+  const list=currentExchange==='hyperliquid'?HL_COIN_LIST:COIN_LIST;
+  renderPanelCoins(list);
+  if(currentExchange==='binance') fetchCoinPrices().then(()=>renderPanelCoins(COIN_LIST));
+  setTimeout(()=>document.getElementById('panel-search').focus(),150);
+}
+function hideCoinPanel(){
+  document.getElementById('coin-panel').style.display='none';
+}
+function closeCoinPanel(e){
+  if(e.target===document.getElementById('coin-panel')) hideCoinPanel();
+}
+
+function renderPanelCoins(list){
+  const el=document.getElementById('coin-panel-list');
+  if(!el) return;
+  const isHL=currentExchange==='hyperliquid';
+  el.innerHTML=list.map(c=>{
+    const p=!isHL?coinPrices[c.sym]:0;
+    const pStr=p?(p>1000?'$'+Math.round(p).toLocaleString():p>1?'$'+p.toFixed(2):'$'+p.toFixed(6)):'';
+    const isActive=currentSym===c.sym;
+    return`<div onclick="selectCoinFromPanel('${c.sym}','${c.icon}')"
+      style="display:flex;align-items:center;justify-content:space-between;
+             padding:11px 14px;cursor:pointer;border-radius:8px;margin:2px 4px;
+             transition:background .12s;
+             background:${isActive?'rgba(56,139,253,.15)':'transparent'};
+             border:1px solid ${isActive?'rgba(56,139,253,.3)':'transparent'}">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:22px;width:30px;text-align:center">${c.icon}</span>
+        <div>
+          <div style="font-family:'Courier New',monospace;font-size:14px;font-weight:700;
+                      color:${isActive?'#58a6ff':'#e6edf3'}">${isHL?c.sym:c.sym.replace('USDT','')}</div>
+          <div style="font-size:11px;color:#8b949e;margin-top:2px">${c.name}</div>
+        </div>
+      </div>
+      <div style="text-align:right">
+        ${pStr?`<div style="font-family:'Courier New',monospace;font-size:12px;color:#79c0ff;font-weight:600">${pStr}</div>`:''}
+        ${isActive?`<div style="font-size:10px;color:#3fb950;margin-top:3px">● 보는 중</div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterPanelCoins(val){
+  const q=val.trim().toUpperCase();
+  const list=currentExchange==='hyperliquid'?HL_COIN_LIST:COIN_LIST;
+  if(!q){renderPanelCoins(list);return;}
+  const filtered=list.filter(c=>c.sym.replace('USDT','').includes(q)||c.name.toUpperCase().includes(q));
+  if(!filtered.length){
+    const sym=currentExchange==='binance'?(q.endsWith('USDT')?q:q+'USDT'):q;
+    filtered.push({sym,name:'직접 입력',icon:'🔍'});
+  }
+  renderPanelCoins(filtered);
+}
+
+function selectCoinFromPanel(sym,icon){
+  hideCoinPanel();
+  const label=icon+' '+sym.replace('USDT','');
+  document.getElementById('coin-picker-label').textContent=label;
+  if(currentExchange==='hyperliquid'){
+    currentSym=sym;
+    document.getElementById('sym-label').textContent=sym+'-PERP · HL';
+    if(hlWs){try{hlWs.close();}catch(e){}}
+    stopHLPolling();
+    loadHLChart(sym);
+  } else {
+    switchSymbol(sym);
+  }
+}
+
+function switchExchangePanel(ex){
+  switchExchange(ex);
+  document.getElementById('panel-ex-binance').classList.toggle('on',ex==='binance');
+  document.getElementById('panel-ex-hl').classList.toggle('on',ex==='hyperliquid');
+  document.getElementById('panel-search').value='';
+  renderPanelCoins(ex==='hyperliquid'?HL_COIN_LIST:COIN_LIST);
+}
+
+function handleCoinSearchKey(e){
+  if(e.key!=='Enter')return;
+  const q=e.target.value.trim().toUpperCase();
+  if(!q)return;
+  if(currentExchange==='hyperliquid') selectCoinFromPanel(q,'🔍');
+  else selectCoinFromPanel(q.endsWith('USDT')?q:q+'USDT','🔍');
+  e.target.value='';
+}
+
+// 기존 코드 호환용
+function showCoinDropdown(){}
+function hideCoinDropdown(){}
+function filterCoins(val){filterPanelCoins(val);}
+function renderDropdown(){}
+
 /* ═══════ CONTROLS ═══════ */
 document.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('[data-tf]').forEach(x=>x.classList.remove('on'));b.classList.add('on');tf=b.dataset.tf;loadCandles();
+  document.querySelectorAll('[data-tf]').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); tf=b.dataset.tf;
+  if (currentExchange==='hyperliquid') loadHLChart(currentSym);
+  else loadCandles();
 }));
 const toggles={btnFib:()=>{showFib=!showFib;updateFibBar();draw();},btnMA:()=>{showMA=!showMA;draw();},
   btnPv:()=>{showPv=!showPv;draw();},btnHz:()=>{showHz=!showHz;draw();},btnCh:()=>{showCh=!showCh;draw();}};
