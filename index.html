@@ -344,7 +344,9 @@ const isMob=()=>window.innerWidth<=600;
 function CH(){return isMob()?340:500;}
 const VOLH=60,FIB_R=[0,.236,.382,.5,.618,.786,1];
 const FIB_C=['#9e9e9e','#29b6f6','#26a69a','#f0b90b','#ff7043','#ef5350','#b71c1c'];
-const FIB_L=['0%','23.6%','38.2%','50.0%','61.8%','78.6%','100%'];
+const FIB_L=['0% 고점','23.6% 얕은조정','38.2% 1차지지','50% 중간선','61.8% 핵심지지','78.6% 마지노선','100% 저점'];
+const FIB_L_SHORT=['고점','23.6%','38.2%','50%','⭐61.8%','78.6%','저점'];
+const FIB_DESC=['추세 시작점 / 전고점 저항','강한 상승장에서의 얕은 조정','일반적인 조정 마무리 구간','심리적 중간선 (50:50)','황금비율 — 가장 중요한 지지','마지막 방어선 (이탈시 추세전환)','되돌림 완전 소멸 / 저점'];
 const FAPI='https://fapi.binance.com/fapi/v1';
 
 let candles=[],tf='1m',openPrice=0,currentSym='BTCUSDT';
@@ -682,16 +684,21 @@ function showFibToast(level,price,isKey){
   let t=document.getElementById('fib-toast');
   if(!t){t=document.createElement('div');t.id='fib-toast';
     t.style.cssText='position:fixed;top:58px;left:50%;transform:translateX(-50%);z-index:9999;'+
-      'padding:8px 20px;border-radius:6px;font-family:Courier New,monospace;font-size:12px;'+
+      'padding:10px 18px;border-radius:8px;font-family:Courier New,monospace;font-size:12px;'+
       'font-weight:600;pointer-events:none;transition:opacity .35s;white-space:nowrap;'+
-      'box-shadow:0 4px 20px rgba(0,0,0,.6)';
+      'box-shadow:0 4px 20px rgba(0,0,0,.6);text-align:center;line-height:1.6';
     document.body.appendChild(t);}
-  t.textContent=`📐 Fib ${level}  $${fmt(price)} 도달${isKey?' ⭐':''}`;
-  t.style.background=isKey?'rgba(255,112,67,.18)':'rgba(88,166,255,.15)';
-  t.style.color=isKey?'#ff7043':'#79c0ff';
-  t.style.border=`1px solid ${isKey?'rgba(255,112,67,.5)':'rgba(88,166,255,.4)'}`;
+  // 레벨 인덱스 찾기
+  const idx=FIB_L_SHORT.indexOf(level);
+  const desc=idx>=0?FIB_DESC[idx]:'';
+  const col=idx>=0?FIB_C[idx]:'#58a6ff';
+  t.innerHTML=`<div>📐 피보나치 ${level} 도달${isKey?' ⭐':''}</div>`+
+    `<div style="font-size:10px;opacity:.8;margin-top:2px">$${fmt(price)} ${desc?'· '+desc:''}</div>`;
+  t.style.background=isKey?'rgba(255,112,67,.2)':'rgba(88,166,255,.15)';
+  t.style.color=col;
+  t.style.border=`1px solid ${col}55`;
   t.style.opacity='1';clearTimeout(t._t);
-  t._t=setTimeout(()=>t.style.opacity='0',3000);
+  t._t=setTimeout(()=>t.style.opacity='0',4000);
 }
 function initAudio(){if(!audioCtx)try{audioCtx=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}}
 function playAlert(type){
@@ -931,19 +938,56 @@ function setA(id,t,c){const e=document.getElementById(id);e.textContent=t;e.clas
 function updateFibBar(){
   const el=document.getElementById('fibbar');
   if(!aiFib||!showFib){el.style.display='none';return;}
-  el.style.cssText='display:flex;padding:6px 12px;background:#0d1117;border-top:1px solid #21262d;flex-wrap:wrap;gap:4px;align-items:center;overflow-x:auto';
+  el.style.cssText='display:flex;padding:5px 10px;background:#0d1117;border-top:1px solid #21262d;flex-wrap:wrap;gap:5px;align-items:center;overflow-x:auto;scrollbar-width:none';
   const range=aiFib.high-aiFib.low;
   const lastClose=candles.length?candles[candles.length-1].close:0;
-  el.innerHTML='<span style="font-size:9px;color:#484f58;text-transform:uppercase;letter-spacing:.4px;margin-right:4px;flex-shrink:0">FIB</span>'+
-    FIB_R.map((r,i)=>{
-      const p=aiFib.high-range*r;
-      const isKey=r===0.618;
-      const isNear=lastClose>0&&Math.abs(p-lastClose)/lastClose<0.005;
-      const border=isNear?`border:1px solid ${FIB_C[i]};box-shadow:0 0 6px ${FIB_C[i]}55`:`border:1px solid ${FIB_C[i]}44`;
-      const weight=isKey||isNear?'font-weight:700':'';
-      const near=isNear?' ◀':'';
-      return`<span class="fb" style="background:${FIB_C[i]}18;color:${FIB_C[i]};${border};${weight}">${FIB_L[i]} $${fmtS(p)}${near}</span>`;
-    }).join('');
+
+  // 현재가에서 가장 가까운 레벨 찾기
+  let nearIdx=-1,nearDist=Infinity;
+  FIB_R.forEach((r,i)=>{
+    const p=aiFib.high-range*r;
+    const d=Math.abs(p-lastClose)/(lastClose||1);
+    if(d<nearDist){nearDist=d;nearIdx=i;}
+  });
+
+  // 다음 지지/저항 레벨 찾기
+  let nextSupport=null,nextResist=null;
+  FIB_R.forEach((r,i)=>{
+    const p=aiFib.high-range*r;
+    if(p<lastClose&&(!nextSupport||p>nextSupport.p)) nextSupport={p,i};
+    if(p>lastClose&&(!nextResist||p<nextResist.p)) nextResist={p,i};
+  });
+
+  const header=`<div style="display:flex;align-items:center;gap:6px;width:100%;margin-bottom:3px;flex-shrink:0">
+    <span style="font-size:9px;color:#484f58;text-transform:uppercase;letter-spacing:.4px">📐 피보나치</span>
+    ${nextResist?`<span style="font-size:9px;background:rgba(239,83,80,.15);color:#ef5350;border:1px solid rgba(239,83,80,.3);padding:1px 6px;border-radius:3px">↑저항 ${FIB_L_SHORT[nextResist.i]} $${fmtS(nextResist.p)}</span>`:''}
+    ${nextSupport?`<span style="font-size:9px;background:rgba(38,166,154,.15);color:#26a69a;border:1px solid rgba(38,166,154,.3);padding:1px 6px;border-radius:3px">↓지지 ${FIB_L_SHORT[nextSupport.i]} $${fmtS(nextSupport.p)}</span>`:''}
+  </div>`;
+
+  const levels=FIB_R.map((r,i)=>{
+    const p=aiFib.high-range*r;
+    const isKey=r===0.618;
+    const isNear=i===nearIdx&&nearDist<0.005;
+    const dist=((p-lastClose)/lastClose*100).toFixed(2);
+    const distStr=(+dist>=0?'▲+':'▼')+dist+'%';
+    const distCol=+dist>=0?'#3fb950':'#f85149';
+    const border=isNear?`border:1px solid ${FIB_C[i]};box-shadow:0 0 8px ${FIB_C[i]}55`:`border:1px solid ${FIB_C[i]}33`;
+    const bg=isNear?`${FIB_C[i]}25`:isKey?`${FIB_C[i]}15`:`${FIB_C[i]}0a`;
+
+    return`<div style="background:${bg};${border};border-radius:6px;padding:5px 9px;cursor:default;transition:all .15s;min-width:90px">
+      <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
+        <div style="width:7px;height:7px;border-radius:50%;background:${FIB_C[i]};flex-shrink:0"></div>
+        <span style="font-family:'Courier New',monospace;font-size:11px;font-weight:${isKey||isNear?'700':'400'};color:${isNear?'#fff':FIB_C[i]}">${FIB_L_SHORT[i]}</span>
+        ${isKey?`<span style="font-size:8px;background:rgba(255,112,67,.2);color:#ff7043;padding:0 4px;border-radius:2px;font-weight:700">핵심</span>`:''}
+        ${isNear?`<span style="font-size:8px;background:rgba(255,255,255,.15);color:#fff;padding:0 4px;border-radius:2px">◀현재가</span>`:''}
+      </div>
+      <div style="font-family:'Courier New',monospace;font-size:11px;color:#e6edf3;font-weight:600;margin-bottom:2px">$${fmtS(p)}</div>
+      <div style="font-size:9px;color:${distCol};margin-bottom:1px">${distStr}</div>
+      <div style="font-size:8px;color:#484f58;line-height:1.3">${FIB_DESC[i]}</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML=header+levels;
 }
 
 /* ═══════ DRAW ═══════ */
@@ -1046,17 +1090,73 @@ function draw(){
       ctx.setLineDash([]);ctx.globalAlpha=1;
       if(isKey||isNear)ctx.restore();
 
-      // 레이블 — 왼쪽 배치
-      const labelText=mob?FIB_L[ri]:FIB_L[ri]+'  $'+fmt(p);
-      ctx.font=(isKey||isNear)?'bold '+(mob?'9':'10')+'px Courier New':sf;
-      const fw=ctx.measureText(labelText).width+8;
-      const lx=a.x0+4;
-      ctx.fillStyle='rgba(13,17,23,0.85)';
-      ctx.fillRect(lx-2,y-11,fw,14);
-      ctx.fillStyle=isNear?'#ffffff':FIB_C[ri];
-      ctx.textAlign='left';
-      ctx.fillText(labelText,lx,y+1);
-      if(isNear&&!mob){ctx.fillStyle='#fff';ctx.fillText(' ◀',lx+fw-8,y+1);}
+      // 레이블 — 초보자 친화적
+      const shortL = FIB_L_SHORT[ri];
+      const priceStr = '$'+fmt(p);
+      const mob2 = isMob();
+
+      if(mob2){
+        // 모바일: 짧게
+        const txt = shortL+' '+priceStr;
+        ctx.font = isKey?'bold 9px Courier New':'8px Courier New';
+        const fw = ctx.measureText(txt).width+8;
+        const lx = a.x0+3;
+        ctx.fillStyle='rgba(13,17,23,0.88)';
+        ctx.fillRect(lx-2,y-10,fw,13);
+        ctx.fillStyle = isNear?'#ffffff':FIB_C[ri];
+        ctx.textAlign='left';
+        ctx.fillText(txt,lx,y+1);
+      } else {
+        // 데스크탑: 레이블 + 가격 + 설명 뱃지
+        const mainTxt = shortL+'  '+priceStr;
+        const descTxt = FIB_DESC[ri];
+        ctx.font = (isKey||isNear)?'bold 10px Courier New':'9px Courier New';
+        const mw = ctx.measureText(mainTxt).width;
+        ctx.font = '8px Courier New';
+        const dw = ctx.measureText(descTxt).width;
+        const totalW = Math.max(mw,dw)+14;
+        const lx = a.x0+4;
+        const boxH = isKey?28:22;
+
+        // 배경박스
+        ctx.fillStyle = isKey?`rgba(13,17,23,0.93)`:'rgba(13,17,23,0.85)';
+        ctx.strokeStyle = FIB_C[ri]+'55';
+        ctx.lineWidth=0.5;
+        ctx.beginPath();
+        ctx.roundRect(lx-2, y-(boxH/2)-1, totalW, boxH, 3);
+        ctx.fill();
+        if(isKey||isNear) ctx.stroke();
+
+        // 메인 레이블
+        ctx.font=(isKey||isNear)?'bold 10px Courier New':'9px Courier New';
+        ctx.fillStyle=isNear?'#ffffff':FIB_C[ri];
+        ctx.textAlign='left';
+        ctx.fillText(mainTxt, lx+2, y-(boxH/2)+10);
+
+        // 설명 텍스트
+        ctx.font='7.5px Courier New';
+        ctx.fillStyle=isKey?FIB_C[ri]:'rgba(255,255,255,0.35)';
+        ctx.fillText(descTxt, lx+2, y+(boxH/2)-3);
+
+        // 현재가 근접 표시
+        if(isNear){
+          ctx.font='bold 9px Courier New';
+          ctx.fillStyle='#ffffff';
+          ctx.fillText(' ◀ 현재가', lx+mw+6, y-(boxH/2)+10);
+        }
+        // 61.8% 특별 강조 뱃지
+        if(isKey){
+          const badgeTxt='⭐핵심';
+          ctx.font='bold 8px Courier New';
+          const bw=ctx.measureText(badgeTxt).width+8;
+          ctx.fillStyle='rgba(255,112,67,0.25)';
+          ctx.beginPath();
+          ctx.roundRect(lx+mw+8, y-(boxH/2)+1, bw, 13, 2);
+          ctx.fill();
+          ctx.fillStyle='#ff7043';
+          ctx.fillText(badgeTxt, lx+mw+12, y-(boxH/2)+10);
+        }
+      }
     });
 
     // 스윙 고점/저점 마커
