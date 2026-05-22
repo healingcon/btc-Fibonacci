@@ -620,6 +620,12 @@ async function loadCandles(){
       const data=await fetchJSON(klineURLs[i],12000);
       if(!Array.isArray(data)||data.length<10)throw new Error('empty');
       candles=data.map(d=>({time:+d[0],open:+d[1],high:+d[2],low:+d[3],close:+d[4],vol:+d[5]}));
+      // 이상값 필터: 중앙값 기준 ±60% 벗어난 캔들 제거
+      if(candles.length>10){
+        const mids=candles.map(c=>c.close).sort((a,b)=>a-b);
+        const median=mids[Math.floor(mids.length/2)];
+        candles=candles.filter(c=>c.close>median*0.4&&c.close<median*2.5&&c.high>0&&c.low>0&&c.high>=c.low);
+      }
       loaded=true;
       // 마지막 캔들 가격 즉시 표시
       const last=candles[candles.length-1];
@@ -900,8 +906,39 @@ function runAI(vis){
   sL.forEach(s=>rL.forEach(r=>{const avg=Math.abs((s.m+r.m)/2),diff=Math.abs(s.m-r.m);if(avg===0||diff/(avg+1e-9)<.45)aiChannels.push({s,r,label:s.m>0?'상승채널':s.m<0?'하락채널':'수평채널'});}));
   if(H.length&&L.length){
     const rH=H.slice(-4),rL2=L.slice(-4);
-    const fH=Math.max(...rH.map(h=>h.p)),fL=Math.min(...rL2.map(l=>l.p));
-    const hiO=rH.find(h=>h.p===fH)||H[H.length-1],loO=rL2.find(l=>l.p===fL)||L[L.length-1];
+    let fH=Math.max(...rH.map(h=>h.p));
+    let fL=Math.min(...rL2.map(l=>l.p));
+
+    // ── 이상값 필터 ──────────────────────────────
+    // 현재가 기준 ±40% 벗어난 값은 스윙으로 사용 안 함
+    const curPrice = vis[vis.length-1]?.close || fH;
+    const maxAllowed = curPrice * 1.4;
+    const minAllowed = curPrice * 0.6;
+
+    // 필터 통과한 피벗만 사용
+    const validH = rH.filter(h => h.p <= maxAllowed && h.p >= minAllowed);
+    const validL = rL2.filter(l => l.p <= maxAllowed && l.p >= minAllowed);
+
+    // 유효한 피벗이 없으면 보이는 캔들 범위로 대체
+    if(validH.length) fH = Math.max(...validH.map(h=>h.p));
+    else fH = Math.max(...vis.map(c=>c.high));
+
+    if(validL.length) fL = Math.min(...validL.map(l=>l.p));
+    else fL = Math.min(...vis.map(c=>c.low));
+
+    // 범위가 너무 크면 (현재가 대비 30% 이상) 최근 캔들 기준으로 재계산
+    const rangeRatio = (fH - fL) / curPrice;
+    if(rangeRatio > 0.3){
+      const recent = vis.slice(-Math.min(80, vis.length));
+      fH = Math.max(...recent.map(c=>c.high));
+      fL = Math.min(...recent.map(c=>c.low));
+    }
+
+    // 고점 < 저점 이상 케이스 방어
+    if(fH <= fL || fH === 0 || fL === 0) return;
+
+    const hiO = (validH.find(h=>h.p===fH)) || {i: vis.length-1, p: fH};
+    const loO = (validL.find(l=>l.p===fL)) || {i: 0, p: fL};
     aiFib={i0:Math.min(hiO.i,loO.i),p0:fL,i1:Math.max(hiO.i,loO.i),p1:fH,high:fH,low:fL};
   }
   const allP=[...H.map(h=>h.p),...L.map(l=>l.p)];
