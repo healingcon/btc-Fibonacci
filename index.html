@@ -938,56 +938,66 @@ function setA(id,t,c){const e=document.getElementById(id);e.textContent=t;e.clas
 function updateFibBar(){
   const el=document.getElementById('fibbar');
   if(!aiFib||!showFib){el.style.display='none';return;}
-  el.style.cssText='display:flex;padding:8px 12px;background:#0d1117;border-top:2px solid #21262d;flex-wrap:nowrap;gap:6px;align-items:stretch;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:#30363d transparent;min-height:90px';
+  el.style.cssText='display:block;background:#0d1117;border-top:2px solid #21262d;padding:0';
+
   const range=aiFib.high-aiFib.low;
   const lastClose=candles.length?candles[candles.length-1].close:0;
 
-  // 현재가에서 가장 가까운 레벨 찾기
   let nearIdx=-1,nearDist=Infinity;
+  let nextSupport=null,nextResist=null;
   FIB_R.forEach((r,i)=>{
     const p=aiFib.high-range*r;
     const d=Math.abs(p-lastClose)/(lastClose||1);
     if(d<nearDist){nearDist=d;nearIdx=i;}
-  });
-
-  // 다음 지지/저항 레벨 찾기
-  let nextSupport=null,nextResist=null;
-  FIB_R.forEach((r,i)=>{
-    const p=aiFib.high-range*r;
     if(p<lastClose&&(!nextSupport||p>nextSupport.p)) nextSupport={p,i};
     if(p>lastClose&&(!nextResist||p<nextResist.p)) nextResist={p,i};
   });
 
-  const header=`<div style="display:flex;align-items:center;gap:6px;width:100%;margin-bottom:3px;flex-shrink:0">
-    <span style="font-size:9px;color:#484f58;text-transform:uppercase;letter-spacing:.4px">📐 피보나치</span>
-    ${nextResist?`<span style="font-size:9px;background:rgba(239,83,80,.15);color:#ef5350;border:1px solid rgba(239,83,80,.3);padding:1px 6px;border-radius:3px">↑저항 ${FIB_L_SHORT[nextResist.i]} $${fmtS(nextResist.p)}</span>`:''}
-    ${nextSupport?`<span style="font-size:9px;background:rgba(38,166,154,.15);color:#26a69a;border:1px solid rgba(38,166,154,.3);padding:1px 6px;border-radius:3px">↓지지 ${FIB_L_SHORT[nextSupport.i]} $${fmtS(nextSupport.p)}</span>`:''}
+  // 헤더 요약바
+  const summary=`<div style="display:flex;align-items:center;gap:8px;padding:7px 14px;background:#111827;border-bottom:1px solid #1e293b;flex-wrap:wrap">
+    <span style="font-size:11px;color:#64748b;font-weight:600;font-family:Courier New,monospace">📐 피보나치 레벨</span>
+    ${nextResist?`<span style="font-size:11px;background:rgba(239,83,80,.18);color:#fc8181;border:1px solid rgba(239,83,80,.4);padding:2px 8px;border-radius:4px;font-family:Courier New,monospace;font-weight:700">↑ 다음저항 ${FIB_L_SHORT[nextResist.i]}  $${fmtS(nextResist.p)}</span>`:''}
+    ${nextSupport?`<span style="font-size:11px;background:rgba(52,211,153,.12);color:#6ee7b7;border:1px solid rgba(52,211,153,.35);padding:2px 8px;border-radius:4px;font-family:Courier New,monospace;font-weight:700">↓ 다음지지 ${FIB_L_SHORT[nextSupport.i]}  $${fmtS(nextSupport.p)}</span>`:''}
   </div>`;
 
-  const levels=FIB_R.map((r,i)=>{
+  // 레벨 리스트 (세로)
+  const rows=FIB_R.map((r,i)=>{
     const p=aiFib.high-range*r;
     const isKey=r===0.618;
     const isNear=i===nearIdx&&nearDist<0.005;
-    const dist=((p-lastClose)/lastClose*100).toFixed(2);
-    const distStr=(+dist>=0?'▲+':'▼')+dist+'%';
-    const distCol=+dist>=0?'#3fb950':'#f85149';
-    const border=isNear?`border:1px solid ${FIB_C[i]};box-shadow:0 0 8px ${FIB_C[i]}55`:`border:1px solid ${FIB_C[i]}44`;
-    const bg=isNear?`${FIB_C[i]}30`:isKey?`${FIB_C[i]}1a`:`${FIB_C[i]}10`;
+    const dist=((p-lastClose)/lastClose*100);
+    const distStr=(dist>=0?'▲ +':'▼ ')+dist.toFixed(2)+'%';
+    const distCol=dist>=0?'#34d399':'#f87171';
+    const rowBg=isNear?'rgba(255,255,255,.06)':isKey?'rgba(255,112,67,.05)':'transparent';
+    const leftBar=isKey?'4px solid #ff7043':isNear?`4px solid ${FIB_C[i]}`:`4px solid ${FIB_C[i]}55`;
 
-    return`<div style="background:${bg};${border};border-radius:7px;padding:7px 10px;cursor:default;min-width:100px;flex-shrink:0">
-      <div style="display:flex;align-items:center;gap:4px;margin-bottom:3px">
-        <div style="width:8px;height:8px;border-radius:50%;background:${FIB_C[i]};flex-shrink:0"></div>
-        <span style="font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:${isNear?'#fff':FIB_C[i]}">${FIB_L_SHORT[i]}</span>
-        ${isKey?`<span style="font-size:9px;background:rgba(255,112,67,.3);color:#ff9060;padding:0 5px;border-radius:3px;font-weight:700">핵심</span>`:''}
-        ${isNear?`<span style="font-size:9px;background:rgba(255,255,255,.2);color:#fff;padding:0 5px;border-radius:3px;font-weight:700">◀현재가</span>`:''}
+    return`<div style="display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;
+      padding:9px 14px;background:${rowBg};border-left:${leftBar};
+      border-bottom:1px solid #1a2030">
+
+      <!-- 왼쪽: 레벨명 + 닷 -->
+      <div style="display:flex;align-items:center;gap:7px;min-width:100px">
+        <div style="width:10px;height:10px;border-radius:50%;background:${FIB_C[i]};flex-shrink:0;
+          ${isKey||isNear?'box-shadow:0 0 6px '+FIB_C[i]:''}"></div>
+        <div>
+          <div style="font-family:Courier New,monospace;font-size:13px;font-weight:700;color:${isNear?'#fff':FIB_C[i]};line-height:1.2">${FIB_L_SHORT[i]}</div>
+          ${isKey?`<div style="font-size:10px;color:#ff9060;font-weight:700">★ 핵심구간</div>`:''}
+          ${isNear&&!isKey?`<div style="font-size:10px;color:#fff;font-weight:700">◀ 현재가</div>`:''}
+        </div>
       </div>
-      <div style="font-family:'Courier New',monospace;font-size:12px;color:#ffffff;font-weight:700;margin-bottom:2px">$${fmtS(p)}</div>
-      <div style="font-size:10px;color:${distCol};font-weight:600;margin-bottom:3px">${distStr}</div>
-      <div style="font-size:10px;color:#a0aec0;line-height:1.4;word-break:keep-all">${FIB_DESC[i]}</div>
+
+      <!-- 가운데: 설명 -->
+      <div style="font-size:12px;color:#94a3b8;line-height:1.4;word-break:keep-all">${FIB_DESC[i]}</div>
+
+      <!-- 오른쪽: 가격 + 거리 -->
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-family:Courier New,monospace;font-size:13px;font-weight:700;color:#e2e8f0">$${fmtS(p)}</div>
+        <div style="font-size:11px;color:${distCol};font-weight:600;margin-top:2px">${distStr}</div>
+      </div>
     </div>`;
   }).join('');
 
-  el.innerHTML=header+levels;
+  el.innerHTML=summary+rows;
 }
 
 /* ═══════ DRAW ═══════ */
