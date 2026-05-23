@@ -1475,6 +1475,10 @@ function checkMTFSignal(sym,results){
   });
   const avg=Math.abs(totalScore/tfs.length);
   const isBuy=buyCount>=3,isSell=sellCount>=3;
+
+  // 신호 변경 감지 → 즉시 발송
+  checkSignalChange(results);
+
   if(!isBuy&&!isSell)return;
   if(avg<TG_CONFIG.minScore)return;
   const key=`${sym}_${isBuy?'buy':'sell'}`;
@@ -1601,8 +1605,24 @@ function saveTGSettings(){
   document.getElementById('tg-modal')?.remove();
   const btn=document.getElementById('btnTG');
   if(btn){btn.textContent='📱 TG ON';btn.classList.add('on');}
-  startMTFAnalysis();
-  sendTelegram(`✅ <b>BTC 차트 알림 활성화</b>\n\n봇 연결 성공! 🎉\n최소 신뢰도: ${sc}점\n타임프레임: 1m/5m/15m/1h/4h 분석 중...`);
+  // 모든 타이머 시작
+  startMTFAnalysis();   // 2분마다 MTF 분석
+  startAutoReport();    // 5분마다 시황 발송
+  startCmdPoll();       // 10초마다 명령어 체크
+  sendTelegram(`✅ <b>BTC 차트 알림 활성화</b>
+
+봇 연결 성공! 🎉
+최소 신뢰도: ${sc}점
+타임프레임: 1m/5m/15m/1h/4h
+
+📋 <b>사용 가능한 명령어</b>
+/status — 현재 시황 즉시 조회
+/tf — 타임프레임별 점수
+/coin — 현재 코인 확인
+/help — 명령어 목록
+
+⏰ 5분마다 자동 시황 발송 시작!
+🚨 신호 변경 시 즉시 알림 발송!`);
 }
 
 function testTG(){
@@ -1623,6 +1643,204 @@ try{
 
 function startMTFAnalysis(){clearInterval(mtfTimer);analyzeMTF();mtfTimer=setInterval(analyzeMTF,120000);}
 function stopMTFAnalysis(){clearInterval(mtfTimer);mtfTimer=null;}
+
+/* ═══════ 텔레그램 고급 기능 ═══════ */
+let reportTimer = null;
+let lastSignalDir = null; // 마지막 신호 방향 추적
+let tgUpdateId = 0;       // 명령어 polling offset
+
+// ── 현재 시황 메시지 생성 ──────────────────────────────────
+function buildStatusMsg(results){
+  const price = candles.length ? candles[candles.length-1].close : 0;
+  const sym   = currentSym;
+
+  // 전체 방향 판단
+  let buyCount=0, sellCount=0;
+  const tfs = MTF_TFS.filter(t=>results[t]);
+  tfs.forEach(t=>{
+    const r=results[t];
+    if(r.dir==='buy'  && r.score>=50) buyCount++;
+    if(r.dir==='sell' && r.score<=-50) sellCount++;
+  });
+  const overallDir = buyCount>=3?'🟢 매수우위':sellCount>=3?'🔴 매도우위':'🟡 중립/관망';
+
+  // RSI
+  const rsi1m = results['1m']?.sigs?.find(s=>s.cat==='RSI');
+  const rsiVal = rsi1m ? rsi1m.val : '--';
+
+  // 거래량
+  const volSig = results['1m']?.sigs?.find(s=>s.cat==='거래량');
+
+  // 구름대
+  const cloudSig = (results['15m']||results['1h'])?.sigs?.find(s=>s.cat==='구름대');
+
+  // 골든크로스
+  const maSig = (results['1h']||results['4h'])?.sigs?.find(s=>s.cat==='MA크로스');
+
+  // OI
+  const oiLine = oiHistory.length ? (()=>{
+    const last=oiHistory[oiHistory.length-1];
+    const prev=oiHistory[Math.max(0,oiHistory.length-5)];
+    const chg=((last.oi-prev.oi)/prev.oi*100).toFixed(2);
+    return `📊 OI: ${last.oi>1000?(last.oi/1000).toFixed(1)+'K':last.oi.toFixed(0)} (${+chg>=0?'+':''}${chg}%)`;
+  })() : '';
+
+  // 타임프레임 요약
+  const tfSummary = MTF_TFS.map(t=>{
+    const r=results[t];
+    if(!r) return `${MTF_LABEL[t]}❓`;
+    const icon = r.dir==='buy'&&r.score>=50?'🟢':r.dir==='sell'&&r.score<=-50?'🔴':'🟡';
+    return `${icon}${MTF_LABEL[t]}(${Math.abs(r.score)}점)`;
+  }).join('\n');
+
+  return `📊 <b>${sym} 시황 리포트</b>
+🕐 ${new Date().toLocaleString('ko-KR')}
+
+💰 현재가: <b>$${fmt(price)}</b>
+🎯 종합판단: <b>${overallDir}</b>
+
+⏰ <b>타임프레임별 분석</b>
+${tfSummary}
+
+📈 <b>주요 지표</b>
+${rsiVal?`• RSI: ${rsiVal}`:''}
+${volSig?`• 거래량: ${volSig.name}`:''}
+${cloudSig?`• 구름대: ${cloudSig.name}`:''}
+${maSig?`• MA: ${maSig.name}`:''}
+${oiLine?`• ${oiLine}`:''}
+
+⚠️ <i>참고용 · 투자 결정은 본인 책임</i>`;
+}
+
+// ── 5분마다 자동 시황 발송 ─────────────────────────────────
+function startAutoReport(){
+  if(reportTimer) clearInterval(reportTimer);
+  // 즉시 1회 발송 후 5분마다
+  setTimeout(()=>sendPeriodicReport(), 3000);
+  reportTimer = setInterval(sendPeriodicReport, 5*60*1000);
+}
+
+async function sendPeriodicReport(){
+  if(!TG_CONFIG.enabled) return;
+  // MTF 결과 최신화
+  await analyzeMTF();
+  // 캐시에서 결과 모으기
+  const results = {};
+  MTF_TFS.forEach(t=>{ if(MTF_CACHE[t]) results[t]={...MTF_CACHE[t]}; });
+  // calcSignal로 score/dir 재계산
+  MTF_TFS.forEach(t=>{
+    if(MTF_CACHE[t]?.candles){
+      const sig=calcSignal(MTF_CACHE[t].candles);
+      results[t]={score:sig.score,dir:sig.dir,sigs:sig.sigs,price:MTF_CACHE[t].candles[MTF_CACHE[t].candles.length-1].close};
+    }
+  });
+  const msg = buildStatusMsg(results);
+  sendTelegram(msg);
+}
+
+// ── 신호 변경 시 즉시 발송 ─────────────────────────────────
+function checkSignalChange(results){
+  if(!TG_CONFIG.enabled) return;
+  let buyCount=0, sellCount=0, totalScore=0;
+  const tfs=Object.keys(results);
+  const matching=[];
+  tfs.forEach(t=>{
+    const r=results[t];if(!r)return;
+    if(r.dir==='buy' &&r.score>=50){buyCount++;matching.push(t);}
+    if(r.dir==='sell'&&r.score<=-50){sellCount++;matching.push(t);}
+    totalScore+=r.score;
+  });
+  const avg=Math.abs(totalScore/(tfs.length||1));
+  const newDir=buyCount>=3?'buy':sellCount>=3?'sell':null;
+
+  // 방향이 바뀌었을 때만 발송
+  if(newDir && newDir!==lastSignalDir && avg>=TG_CONFIG.minScore){
+    lastSignalDir=newDir;
+    const price=candles.length?candles[candles.length-1].close:0;
+    const isBuy=newDir==='buy';
+    const msg=`${isBuy?'🚨🟢':'🚨🔴'} <b>신호 변경! ${isBuy?'매수':'매도'} — ${currentSym}</b>
+
+💰 현재가: <b>$${fmt(price)}</b>
+⭐ 신뢰도: <b>${avg.toFixed(0)}점</b>
+✅ ${matching.length}개 타임프레임 일치
+${matching.map(t=>`• ${MTF_LABEL[t]}`).join('\n')}
+
+${isBuy?'📈 매수 검토 구간':'📉 매도/관망 구간'}
+🕐 ${new Date().toLocaleString('ko-KR')}
+⚠️ <i>참고용 · 투자 결정은 본인 책임</i>`;
+    sendTelegram(msg);
+    showMTFToast(isBuy, price, avg, matching.length);
+  } else if(!newDir){
+    lastSignalDir=null; // 중립 복귀 시 초기화
+  }
+}
+
+// ── /status 명령어 폴링 ────────────────────────────────────
+let cmdPollTimer = null;
+
+async function pollTGCommands(){
+  if(!TG_CONFIG.enabled||!TG_CONFIG.token||!TG_CONFIG.chatId) return;
+  try{
+    const r=await fetch(`https://api.telegram.org/bot${TG_CONFIG.token}/getUpdates?offset=${tgUpdateId+1}&timeout=0`);
+    const d=await r.json();
+    if(!d.ok||!d.result?.length) return;
+    for(const update of d.result){
+      tgUpdateId=update.update_id;
+      const msg=update.message;
+      if(!msg||String(msg.chat.id)!==String(TG_CONFIG.chatId)) continue;
+      const text=(msg.text||'').trim().toLowerCase();
+      if(text==='/status'||text==='/시황'){
+        await sendCurrentStatus();
+      } else if(text==='/help'||text==='/도움'){
+        sendTelegram(`📋 <b>명령어 목록</b>
+
+/status 또는 /시황 — 현재 시황 즉시 조회
+/help 또는 /도움 — 명령어 목록
+/coin — 현재 분석 중인 코인
+/tf — 타임프레임별 점수 보기
+
+⏰ 자동 발송: 5분마다 시황 리포트
+🚨 신호 변경 시 즉시 알림`);
+      } else if(text==='/coin'){
+        const price=candles.length?candles[candles.length-1].close:0;
+        sendTelegram(`🪙 현재 코인: <b>${currentSym}</b>\n💰 현재가: $${fmt(price)}\n🕐 ${new Date().toLocaleString('ko-KR')}`);
+      } else if(text==='/tf'){
+        const lines=MTF_TFS.map(t=>{
+          const c=MTF_CACHE[t];
+          if(!c?.candles) return `${MTF_LABEL[t]}: 데이터 없음`;
+          const sig=calcSignal(c.candles);
+          const icon=sig.dir==='buy'?'🟢':sig.dir==='sell'?'🔴':'🟡';
+          return `${icon} ${MTF_LABEL[t]}: ${sig.dir==='buy'?'매수':sig.dir==='sell'?'매도':'중립'} ${Math.abs(sig.score)}점`;
+        }).join('\n');
+        const price=candles.length?candles[candles.length-1].close:0;
+        sendTelegram(`📊 <b>${currentSym} 타임프레임 분석</b>\n💰 $${fmt(price)}\n\n${lines}\n\n🕐 ${new Date().toLocaleString('ko-KR')}`);
+      }
+    }
+  }catch(e){ console.warn('TG 명령어 폴링 실패:',e); }
+}
+
+async function sendCurrentStatus(){
+  const results={};
+  for(const t of MTF_TFS){
+    if(MTF_CACHE[t]?.candles){
+      const sig=calcSignal(MTF_CACHE[t].candles);
+      results[t]={score:sig.score,dir:sig.dir,sigs:sig.sigs,price:MTF_CACHE[t].candles[MTF_CACHE[t].candles.length-1].close};
+    }
+  }
+  if(!Object.keys(results).length){
+    // 캐시 없으면 새로 가져오기
+    await analyzeMTF();
+    return sendCurrentStatus();
+  }
+  sendTelegram(buildStatusMsg(results));
+}
+
+function startCmdPoll(){
+  if(cmdPollTimer) clearInterval(cmdPollTimer);
+  pollTGCommands(); // 즉시 1회
+  cmdPollTimer=setInterval(pollTGCommands, 10000); // 10초마다 명령어 체크
+}
+function stopCmdPoll(){ clearInterval(cmdPollTimer); cmdPollTimer=null; }
 
 function calcIchimoku(candles){
   const high=(arr,s,e)=>Math.max(...arr.slice(s,e).map(c=>c.high));
@@ -2987,13 +3205,17 @@ document.getElementById('btnAlert').addEventListener('click',function(){
 let rsz;window.addEventListener('resize',()=>{clearTimeout(rsz);rsz=setTimeout(()=>{resize();draw();},100);});
 
 resize();loadCandles();
-// TG 설정 복원됐으면 버튼 상태 업데이트 + MTF 시작
+// TG 설정 복원됐으면 모든 타이머 시작
 if(TG_CONFIG.enabled){
   const btnTG=document.getElementById('btnTG');
   if(btnTG){btnTG.textContent='📱 TG ON';btnTG.classList.add('on');}
-  setTimeout(startMTFAnalysis, 5000); // 차트 로드 후 5초 뒤 시작
+  setTimeout(()=>{
+    startMTFAnalysis(); // 2분마다 MTF
+    startAutoReport();  // 5분마다 시황
+    startCmdPoll();     // 10초마다 명령어
+  }, 5000);
 } else {
-  setTimeout(()=>analyzeMTF(), 8000); // TG 없어도 패널은 표시
+  setTimeout(()=>analyzeMTF(), 8000);
 }
 </script>
 
