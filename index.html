@@ -236,6 +236,7 @@ canvas{display:block;width:100%;touch-action:none}
     <button class="btn on" id="btnCh">채널</button>
     <button class="btn" id="btnAI">⟳ AI 재분석</button>
     <button class="btn on" id="btnAlert">🔔 알림</button>
+    <button class="btn" id="btnTG" onclick="openTGSettings()">📱 TG 설정</button>
   </div>
 </div>
 
@@ -1412,6 +1413,217 @@ function checkCrossEvent(gc){
     lastCrossState = newState; // 초기 상태 세팅 (알림 없이)
   }
 }
+/* ═══════ 텔레그램 & 멀티 타임프레임 ═══════ */
+const TG_CONFIG={token:'',chatId:'',enabled:false,minScore:65,cooldown:300000};
+const tgCooldownMap={};
+
+async function sendTelegram(msg){
+  if(!TG_CONFIG.token||!TG_CONFIG.chatId)return;
+  try{
+    await fetch(`https://api.telegram.org/bot${TG_CONFIG.token}/sendMessage`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({chat_id:TG_CONFIG.chatId,text:msg,parse_mode:'HTML'})
+    });
+  }catch(e){console.warn('TG 실패:',e);}
+}
+
+const MTF_CACHE={};
+const MTF_TFS=['1m','5m','15m','1h','4h'];
+const MTF_LABEL={'1m':'1분봉','5m':'5분봉','15m':'15분봉','1h':'1시간봉','4h':'4시간봉'};
+let mtfRunning=false,mtfTimer=null;
+
+async function fetchMTFCandles(sym,interval){
+  const data=await fetchJSON(`${FAPI}/klines?symbol=${sym}&interval=${interval}&limit=120`,8000);
+  if(!Array.isArray(data)||data.length<30)throw new Error('데이터부족');
+  let cs=data.map(d=>({time:+d[0],open:+d[1],high:+d[2],low:+d[3],close:+d[4],vol:+d[5]}))
+    .filter(c=>c.open>0&&c.close>0&&c.high>=c.low);
+  const mids=cs.map(c=>c.close).sort((a,b)=>a-b);
+  const med=mids[Math.floor(mids.length/2)];
+  return cs.filter(c=>c.close>med*0.4&&c.close<med*2.5);
+}
+
+async function analyzeMTF(){
+  if(mtfRunning||currentExchange!=='binance')return;
+  mtfRunning=true;
+  const sym=currentSym,now=Date.now(),results={};
+  const cacheTTL={'1m':30000,'5m':60000,'15m':180000,'1h':300000,'4h':600000};
+  for(const t of MTF_TFS){
+    try{
+      let cs;
+      const cached=MTF_CACHE[t];
+      if(cached&&now-cached.ts<cacheTTL[t]) cs=cached.candles;
+      else{ cs=await fetchMTFCandles(sym,t); MTF_CACHE[t]={candles:cs,ts:now}; }
+      const sig=calcSignal(cs);
+      results[t]={score:sig.score,dir:sig.dir,sigs:sig.sigs,price:cs[cs.length-1].close};
+    }catch(e){ console.warn(`MTF ${t} 실패:`,e.message); }
+  }
+  mtfRunning=false;
+  updateMTFPanel(results);
+  checkMTFSignal(sym,results);
+}
+
+function checkMTFSignal(sym,results){
+  const tfs=Object.keys(results);
+  if(tfs.length<3)return;
+  let buyCount=0,sellCount=0,totalScore=0;
+  const matching=[];
+  tfs.forEach(t=>{
+    const r=results[t];if(!r)return;
+    if(r.dir==='buy' &&r.score>=50){buyCount++; matching.push(t);}
+    if(r.dir==='sell'&&r.score<=-50){sellCount++;matching.push(t);}
+    totalScore+=r.score;
+  });
+  const avg=Math.abs(totalScore/tfs.length);
+  const isBuy=buyCount>=3,isSell=sellCount>=3;
+  if(!isBuy&&!isSell)return;
+  if(avg<TG_CONFIG.minScore)return;
+  const key=`${sym}_${isBuy?'buy':'sell'}`;
+  if(Date.now()-(tgCooldownMap[key]||0)<TG_CONFIG.cooldown)return;
+  tgCooldownMap[key]=Date.now();
+  buildAndSend(sym,isBuy,results,matching,avg);
+}
+
+function buildAndSend(sym,isBuy,results,matching,score){
+  const price=results['1m']?.price||results['5m']?.price||0;
+  const dir=isBuy?'매수':'매도';
+  const tfLine=MTF_TFS.map(t=>{
+    const r=results[t];if(!r)return `${MTF_LABEL[t]}❓`;
+    return `${MTF_LABEL[t]}${matching.includes(t)?'✅':'⬜'}`;
+  }).join(' ');
+  const allSigs=[];
+  MTF_TFS.forEach(t=>{ results[t]?.sigs?.slice(0,3).forEach(s=>{ if(!allSigs.find(x=>x.name===s.name))allSigs.push({...s,tf:t}); }); });
+  const cats=['RSI','MACD','BB','MA크로스','구름대','거래량'];
+  const sigLines=cats.map(cat=>{
+    const s=allSigs.find(x=>x.cat===cat);if(!s)return null;
+    const ic=s.dir==='buy'?'🔵':s.dir==='sell'?'🔴':'🟡';
+    return `${ic} <b>${s.cat}</b>: ${s.name} [${MTF_LABEL[s.tf]}]`;
+  }).filter(Boolean);
+  const oiLine=oiHistory.length?(()=>{
+    const last=oiHistory[oiHistory.length-1],prev=oiHistory[Math.max(0,oiHistory.length-5)];
+    const chg=((last.oi-prev.oi)/prev.oi*100).toFixed(2);
+    return `\n📊 OI: ${last.oi>1000?(last.oi/1000).toFixed(1)+'K':last.oi.toFixed(0)} (${chg>=0?'+':''}${chg}%)`;
+  })():'';
+  const msg=`${isBuy?'🟢':'🔴'} <b>${dir} 신호 — ${sym}</b>\n\n💰 현재가: <b>$${fmt(price)}</b>\n⭐ 신뢰도: <b>${score.toFixed(0)}점</b>\n\n⏰ <b>타임프레임</b>\n${tfLine}\n\n📋 <b>주요 신호</b>\n${sigLines.join('\n')}${oiLine}\n\n${isBuy?'📈':'📉'} <i>${matching.length}개 타임프레임 일치</i>\n⚠️ <i>참고용 · 투자 결정은 본인 책임</i>\n🕐 ${new Date().toLocaleString('ko-KR')}`;
+  if(TG_CONFIG.enabled) sendTelegram(msg);
+  showMTFToast(isBuy,price,score,matching.length);
+  console.log('MTF신호:',dir,score.toFixed(0)+'점',matching);
+}
+
+function showMTFToast(isBuy,price,score,count){
+  let t=document.getElementById('mtf-toast');
+  if(!t){t=document.createElement('div');t.id='mtf-toast';document.body.appendChild(t);}
+  const col=isBuy?'#34d399':'#f87171';
+  t.style.cssText=`position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:99996;
+    background:${isBuy?'rgba(0,40,20,.97)':'rgba(40,0,0,.97)'};border:2px solid ${col};
+    border-radius:12px;padding:12px 24px;text-align:center;
+    font-family:'Courier New',monospace;box-shadow:0 0 30px ${col}55;min-width:240px;
+    animation:crossSlideIn .3s ease-out`;
+  t.innerHTML=`<div style="font-size:18px;font-weight:900;color:${col}">${isBuy?'🟢 매수 신호':'🔴 매도 신호'}</div>
+    <div style="font-size:12px;color:#94a3b8;margin-top:3px">$${fmt(price)} · 신뢰도 ${score.toFixed(0)}점</div>
+    <div style="font-size:11px;color:${col};margin-top:3px">${count}개 타임프레임 일치 ✅</div>
+    ${TG_CONFIG.enabled?'<div style="font-size:10px;color:#64748b;margin-top:3px">📱 텔레그램 발송됨</div>':''}`;
+  t.style.opacity='1';clearTimeout(t._t);
+  t._t=setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),400);},6000);
+}
+
+function updateMTFPanel(results){
+  let el=document.getElementById('mtf-panel');
+  if(!el){
+    el=document.createElement('div');el.id='mtf-panel';
+    el.style.cssText=`position:fixed;left:8px;bottom:${isMob()?'120':'100'}px;z-index:200;
+      background:rgba(13,17,23,.92);border:1px solid #21262d;border-radius:8px;
+      padding:6px 10px;font-family:'Courier New',monospace;font-size:10px;
+      min-width:140px;backdrop-filter:blur(4px)`;
+    document.body.appendChild(el);
+  }
+  el.innerHTML='<div style="color:#475569;margin-bottom:4px;font-size:9px">📊 멀티 타임프레임</div>'+
+    MTF_TFS.map(t=>{
+      const r=results[t];
+      if(!r)return`<div style="color:#30363d">${MTF_LABEL[t]} —</div>`;
+      const col=r.dir==='buy'?(r.score>70?'#34d399':'#86efac'):r.dir==='sell'?(r.score<-70?'#f87171':'#fca5a5'):'#94a3b8';
+      return`<div style="display:flex;justify-content:space-between;gap:8px;padding:1.5px 0">
+        <span style="color:#64748b">${MTF_LABEL[t]}</span>
+        <span style="color:${col};font-weight:700">${r.dir==='buy'?'▲':r.dir==='sell'?'▼':'—'} ${Math.abs(r.score)}점</span>
+      </div>`;
+    }).join('');
+}
+
+function openTGSettings(){
+  let m=document.getElementById('tg-modal');
+  if(m){m.remove();return;}
+  m=document.createElement('div');m.id='tg-modal';
+  m.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+  m.innerHTML=`<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;width:90%;max-width:360px;font-family:'Courier New',monospace">
+    <div style="font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:14px">📱 텔레그램 설정</div>
+    <div style="font-size:10px;color:#64748b;margin-bottom:12px;line-height:1.7">
+      1️⃣ @BotFather → /newbot → 봇 생성<br>
+      2️⃣ @userinfobot → 아무 메시지 → Chat ID 확인<br>
+      3️⃣ 아래에 입력 후 저장
+    </div>
+    <div style="margin-bottom:10px">
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">봇 토큰</div>
+      <input id="tg-tok" value="${TG_CONFIG.token}" placeholder="1234567890:ABCdef..."
+        style="width:100%;background:#21262d;border:1px solid #30363d;border-radius:6px;
+          color:#e2e8f0;font-family:'Courier New',monospace;font-size:11px;
+          padding:7px 10px;box-sizing:border-box;outline:none">
+    </div>
+    <div style="margin-bottom:10px">
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Chat ID</div>
+      <input id="tg-cid" value="${TG_CONFIG.chatId}" placeholder="123456789"
+        style="width:100%;background:#21262d;border:1px solid #30363d;border-radius:6px;
+          color:#e2e8f0;font-family:'Courier New',monospace;font-size:11px;
+          padding:7px 10px;box-sizing:border-box;outline:none">
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">최소 신뢰도 (기본 65점)</div>
+      <input id="tg-sc" type="number" value="${TG_CONFIG.minScore}" min="50" max="95"
+        style="width:100%;background:#21262d;border:1px solid #30363d;border-radius:6px;
+          color:#e2e8f0;font-family:'Courier New',monospace;font-size:11px;
+          padding:7px 10px;box-sizing:border-box;outline:none">
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="saveTGSettings()" style="flex:1;background:rgba(56,139,253,.2);border:1px solid #388bfd;color:#58a6ff;padding:9px;border-radius:7px;font-family:'Courier New',monospace;font-size:12px;font-weight:700;cursor:pointer">저장</button>
+      <button onclick="testTG()" style="flex:1;background:rgba(52,211,153,.15);border:1px solid #34d399;color:#34d399;padding:9px;border-radius:7px;font-family:'Courier New',monospace;font-size:12px;cursor:pointer">테스트</button>
+      <button onclick="document.getElementById('tg-modal').remove()" style="background:rgba(255,255,255,.05);border:1px solid #30363d;color:#64748b;padding:9px 12px;border-radius:7px;font-family:'Courier New',monospace;font-size:12px;cursor:pointer">✕</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  m.addEventListener('click',e=>{ if(e.target===m)m.remove(); });
+}
+
+function saveTGSettings(){
+  const tok=document.getElementById('tg-tok').value.trim();
+  const cid=document.getElementById('tg-cid').value.trim();
+  const sc=parseInt(document.getElementById('tg-sc').value)||65;
+  if(!tok||!cid){alert('토큰과 Chat ID를 입력해주세요');return;}
+  TG_CONFIG.token=tok;TG_CONFIG.chatId=cid;TG_CONFIG.minScore=sc;TG_CONFIG.enabled=true;
+  try{localStorage.setItem('tg_tok',tok);localStorage.setItem('tg_cid',cid);localStorage.setItem('tg_sc',sc);}catch(e){}
+  document.getElementById('tg-modal')?.remove();
+  const btn=document.getElementById('btnTG');
+  if(btn){btn.textContent='📱 TG ON';btn.classList.add('on');}
+  startMTFAnalysis();
+  sendTelegram(`✅ <b>BTC 차트 알림 활성화</b>\n\n봇 연결 성공! 🎉\n최소 신뢰도: ${sc}점\n타임프레임: 1m/5m/15m/1h/4h 분석 중...`);
+}
+
+function testTG(){
+  const tok=document.getElementById('tg-tok').value.trim();
+  const cid=document.getElementById('tg-cid').value.trim();
+  if(!tok||!cid){alert('먼저 입력해주세요');return;}
+  fetch(`https://api.telegram.org/bot${tok}/sendMessage`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({chat_id:cid,text:`🔔 <b>테스트 메시지</b>\n\nBTC 차트 봇 연결 성공! ✅\n현재 코인: ${currentSym}\n\n저장하면 자동 신호 발송이 시작됩니다.`,parse_mode:'HTML'})
+  }).then(r=>r.json()).then(d=>{ d.ok?alert('✅ 발송 성공! 텔레그램 확인!'):alert('❌ 실패: '+d.description); }).catch(()=>alert('❌ 네트워크 오류'));
+}
+
+// localStorage 복원
+try{
+  const t=localStorage.getItem('tg_tok'),c=localStorage.getItem('tg_cid'),s=localStorage.getItem('tg_sc');
+  if(t&&c){TG_CONFIG.token=t;TG_CONFIG.chatId=c;TG_CONFIG.enabled=true;if(s)TG_CONFIG.minScore=parseInt(s)||65;}
+}catch(e){}
+
+function startMTFAnalysis(){clearInterval(mtfTimer);analyzeMTF();mtfTimer=setInterval(analyzeMTF,120000);}
+function stopMTFAnalysis(){clearInterval(mtfTimer);mtfTimer=null;}
+
 function calcIchimoku(candles){
   const high=(arr,s,e)=>Math.max(...arr.slice(s,e).map(c=>c.high));
   const low=(arr,s,e)=>Math.min(...arr.slice(s,e).map(c=>c.low));
@@ -2775,6 +2987,14 @@ document.getElementById('btnAlert').addEventListener('click',function(){
 let rsz;window.addEventListener('resize',()=>{clearTimeout(rsz);rsz=setTimeout(()=>{resize();draw();},100);});
 
 resize();loadCandles();
+// TG 설정 복원됐으면 버튼 상태 업데이트 + MTF 시작
+if(TG_CONFIG.enabled){
+  const btnTG=document.getElementById('btnTG');
+  if(btnTG){btnTG.textContent='📱 TG ON';btnTG.classList.add('on');}
+  setTimeout(startMTFAnalysis, 5000); // 차트 로드 후 5초 뒤 시작
+} else {
+  setTimeout(()=>analyzeMTF(), 8000); // TG 없어도 패널은 표시
+}
 </script>
 
 <!-- ════════ 우하단 고정 신호 위젯 ════════ -->
