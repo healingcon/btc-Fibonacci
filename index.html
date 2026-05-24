@@ -1428,8 +1428,10 @@ async function sendTelegram(msg){
 }
 
 const MTF_CACHE={};
-const MTF_TFS=['1m','5m','15m','1h','4h'];
-const MTF_LABEL={'1m':'1분봉','5m':'5분봉','15m':'15분봉','1h':'1시간봉','4h':'4시간봉'};
+const MTF_TFS=['15m','1h','4h'];
+const MTF_LABEL={'15m':'15분봉','1h':'1시간봉','4h':'4시간봉'};
+const MTF_WEIGHT={'15m':1.0,'1h':2.0,'4h':3.0};
+const MTF_ROLE  ={'15m':'진입타이밍','1h':'중기방향','4h':'큰추세'};
 let mtfRunning=false,mtfTimer=null;
 
 async function fetchMTFCandles(sym,interval){
@@ -1463,28 +1465,42 @@ async function analyzeMTF(){
 }
 
 function checkMTFSignal(sym,results){
-  const tfs=Object.keys(results);
-  if(tfs.length<3)return;
-  let buyCount=0,sellCount=0,totalScore=0;
-  const matching=[];
+  const tfs=Object.keys(results).filter(t=>MTF_TFS.includes(t));
+  if(tfs.length<2) return;
+
+  // ── 가중치 통합 점수 계산 ──────────────────────────────
+  let weightedSum=0, totalWeight=0;
   tfs.forEach(t=>{
-    const r=results[t];if(!r)return;
-    if(r.dir==='buy' &&r.score>=50){buyCount++; matching.push(t);}
-    if(r.dir==='sell'&&r.score<=-50){sellCount++;matching.push(t);}
-    totalScore+=r.score;
+    const r=results[t]; if(!r) return;
+    const w=MTF_WEIGHT[t]||1;
+    weightedSum += r.score * w;
+    totalWeight += w;
   });
-  const avg=Math.abs(totalScore/tfs.length);
-  const isBuy=buyCount>=3,isSell=sellCount>=3;
+  const weightedScore = totalWeight>0 ? weightedSum/totalWeight : 0;
 
-  // 신호 변경 감지 → 즉시 발송
-  checkSignalChange(results);
+  // ── 4시간봉 방향 필수 확인 ────────────────────────────
+  const h4 = results['4h'];
+  const h4dir = h4?.dir || 'neutral';
 
-  if(!isBuy&&!isSell)return;
-  if(avg<TG_CONFIG.minScore)return;
+  // ── 신호 판단 ──────────────────────────────────────────
+  const isBuy  = weightedScore >= 55 && h4dir === 'buy';
+  const isSell = weightedScore <= -55 && h4dir === 'sell';
+
+  // 신호 변경 감지
+  checkSignalChange(results, weightedScore);
+
+  if(!isBuy && !isSell) return;
+  if(Math.abs(weightedScore) < TG_CONFIG.minScore) return;
+
   const key=`${sym}_${isBuy?'buy':'sell'}`;
-  if(Date.now()-(tgCooldownMap[key]||0)<TG_CONFIG.cooldown)return;
+  if(Date.now()-(tgCooldownMap[key]||0)<TG_CONFIG.cooldown) return;
   tgCooldownMap[key]=Date.now();
-  buildAndSend(sym,isBuy,results,matching,avg);
+
+  const matching=tfs.filter(t=>{
+    const r=results[t]; if(!r) return false;
+    return isBuy?(r.dir==='buy'&&r.score>=50):(r.dir==='sell'&&r.score<=-50);
+  });
+  buildAndSend(sym,isBuy,results,matching,Math.abs(weightedScore));
 }
 
 function buildAndSend(sym,isBuy,results,matching,score){
@@ -1536,20 +1552,73 @@ function updateMTFPanel(results){
     el=document.createElement('div');el.id='mtf-panel';
     el.style.cssText=`position:fixed;left:8px;bottom:${isMob()?'120':'100'}px;z-index:200;
       background:rgba(13,17,23,.92);border:1px solid #21262d;border-radius:8px;
-      padding:6px 10px;font-family:'Courier New',monospace;font-size:10px;
-      min-width:140px;backdrop-filter:blur(4px)`;
+      padding:8px 12px;font-family:'Courier New',monospace;font-size:10px;
+      min-width:160px;backdrop-filter:blur(4px)`;
     document.body.appendChild(el);
   }
-  el.innerHTML='<div style="color:#475569;margin-bottom:4px;font-size:9px">📊 멀티 타임프레임</div>'+
-    MTF_TFS.map(t=>{
+
+  // 가중치 통합 점수 계산
+  let wSum=0,wTotal=0;
+  MTF_TFS.forEach(t=>{
+    const r=results[t];if(!r)return;
+    const w=MTF_WEIGHT[t];
+    wSum+=r.score*w; wTotal+=w;
+  });
+  const ws=wTotal>0?wSum/wTotal:0;
+  const h4dir=results['4h']?.dir||'neutral';
+  const overall=ws>=55&&h4dir==='buy'?'🟢 매수':ws<=-55&&h4dir==='sell'?'🔴 매도':'🟡 관망';
+  const overallCol=ws>=55&&h4dir==='buy'?'#34d399':ws<=-55&&h4dir==='sell'?'#f87171':'#fbbf24';
+
+  const rows=MTF_TFS.map(t=>{
+    const r=results[t];
+    const w=MTF_WEIGHT[t];
+    if(!r)return`<div style="color:#30363d">${MTF_LABEL[t]} (×${w}) —</div>`;
+    const col=r.dir==='buy'&&r.score>=50?'#34d399':r.dir==='sell'&&r.score<=-50?'#f87171':'#94a3b8';
+    const icon=r.dir==='buy'&&r.score>=50?'▲':r.dir==='sell'&&r.score<=-50?'▼':'—';
+    return`<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 0">
+      <span style="color:#64748b">${MTF_LABEL[t]}<span style="color:#334155"> ×${w}</span></span>
+      <span style="color:${col};font-weight:700">${icon} ${Math.abs(r.score)}점</span>
+    </div>`;
+  }).join('');
+
+  el.innerHTML=`
+    <div style="color:#475569;font-size:9px;margin-bottom:6px;letter-spacing:.3px">📊 가중 통합 신호</div>
+    ${MTF_TFS.map(t=>{
       const r=results[t];
-      if(!r)return`<div style="color:#30363d">${MTF_LABEL[t]} —</div>`;
-      const col=r.dir==='buy'?(r.score>70?'#34d399':'#86efac'):r.dir==='sell'?(r.score<-70?'#f87171':'#fca5a5'):'#94a3b8';
-      return`<div style="display:flex;justify-content:space-between;gap:8px;padding:1.5px 0">
-        <span style="color:#64748b">${MTF_LABEL[t]}</span>
-        <span style="color:${col};font-weight:700">${r.dir==='buy'?'▲':r.dir==='sell'?'▼':'—'} ${Math.abs(r.score)}점</span>
+      const w=MTF_WEIGHT[t];
+      const role=MTF_ROLE[t];
+      if(!r)return`<div style="padding:3px 0;border-bottom:1px solid #0f1623"><div style="color:#30363d;font-size:10px">${MTF_LABEL[t]}</div></div>`;
+      const col=r.dir==='buy'&&r.score>=50?'#34d399':r.dir==='sell'&&r.score<=-50?'#f87171':'#94a3b8';
+      const icon=r.dir==='buy'&&r.score>=50?'▲':r.dir==='sell'&&r.score<=-50?'▼':'—';
+      const dirLabel=r.dir==='buy'?'매수':r.dir==='sell'?'매도':'중립';
+      return`<div style="padding:4px 0;border-bottom:1px solid #0f1623">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <span style="color:#94a3b8;font-size:10px;font-weight:700">${MTF_LABEL[t]}</span>
+            <span style="color:#334155;font-size:9px;margin-left:4px">×${w}</span>
+          </div>
+          <span style="color:${col};font-weight:900;font-size:11px">${icon} ${Math.abs(r.score)}점</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1px">
+          <span style="color:#475569;font-size:9px">${role}</span>
+          <span style="color:${col};font-size:9px;font-weight:600">${dirLabel}</span>
+        </div>
       </div>`;
-    }).join('');
+    }).join('')}
+    <div style="padding-top:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="color:#475569;font-size:9px">통합판단</span>
+        <span style="color:${overallCol};font-weight:900;font-size:12px">${overall}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:2px">
+        <span style="color:#334155;font-size:9px">가중점수</span>
+        <span style="color:${overallCol};font-size:10px;font-weight:700">${Math.abs(ws).toFixed(0)}점</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:2px">
+        <span style="color:#334155;font-size:9px">4h 큰추세</span>
+        <span style="font-size:9px">${h4dir==='buy'?'🟢 매수':h4dir==='sell'?'🔴 매도':'🟡 중립'}</span>
+      </div>
+    </div>`;
 }
 
 function openTGSettings(){
@@ -1662,14 +1731,25 @@ function buildStatusMsg(results){
     if(r.dir==='buy'  && r.score>=50) buyCount++;
     if(r.dir==='sell' && r.score<=-50) sellCount++;
   });
-  const overallDir = buyCount>=3?'🟢 매수우위':sellCount>=3?'🔴 매도우위':'🟡 중립/관망';
+  // 가중치 통합 점수
+  let wSum=0, wTotal=0;
+  tfs.forEach(t=>{
+    const r=results[t];if(!r)return;
+    const w=MTF_WEIGHT[t];
+    wSum+=r.score*w; wTotal+=w;
+  });
+  const ws = wTotal>0 ? wSum/wTotal : 0;
+  const h4dir = results['4h']?.dir||'neutral';
+  const isBuyOverall = ws>=55 && h4dir==='buy';
+  const isSellOverall= ws<=-55 && h4dir==='sell';
+  const overallDir = isBuyOverall?'🟢 매수우위':isSellOverall?'🔴 매도우위':'🟡 중립/관망';
 
   // RSI
-  const rsi1m = results['1m']?.sigs?.find(s=>s.cat==='RSI');
-  const rsiVal = rsi1m ? rsi1m.val : '--';
+  const rsiSig = (results['15m']||results['1h'])?.sigs?.find(s=>s.cat==='RSI');
+  const rsiVal = rsiSig ? rsiSig.val : '--';
 
   // 거래량
-  const volSig = results['1m']?.sigs?.find(s=>s.cat==='거래량');
+  const volSig = (results['15m']||results['1h'])?.sigs?.find(s=>s.cat==='거래량');
 
   // 구름대
   const cloudSig = (results['15m']||results['1h'])?.sigs?.find(s=>s.cat==='구름대');
@@ -1685,12 +1765,15 @@ function buildStatusMsg(results){
     return `📊 OI: ${last.oi>1000?(last.oi/1000).toFixed(1)+'K':last.oi.toFixed(0)} (${+chg>=0?'+':''}${chg}%)`;
   })() : '';
 
-  // 타임프레임 요약
+  // 타임프레임 요약 (역할 포함)
   const tfSummary = MTF_TFS.map(t=>{
     const r=results[t];
-    if(!r) return `${MTF_LABEL[t]}❓`;
+    const role=MTF_ROLE[t];
+    const w=MTF_WEIGHT[t];
+    if(!r) return `❓ ${MTF_LABEL[t]} (${role})`;
     const icon = r.dir==='buy'&&r.score>=50?'🟢':r.dir==='sell'&&r.score<=-50?'🔴':'🟡';
-    return `${icon}${MTF_LABEL[t]}(${Math.abs(r.score)}점)`;
+    const dir  = r.dir==='buy'?'매수':r.dir==='sell'?'매도':'중립';
+    return `${icon} ${MTF_LABEL[t]} — <b>${role}</b>\n   └ ${dir} ${Math.abs(r.score)}점 (가중×${w})`;
   }).join('\n');
 
   return `📊 <b>${sym} 시황 리포트</b>
@@ -1698,6 +1781,7 @@ function buildStatusMsg(results){
 
 💰 현재가: <b>$${fmt(price)}</b>
 🎯 종합판단: <b>${overallDir}</b>
+⭐ 가중 통합점수: <b>${Math.abs(ws).toFixed(0)}점</b>
 
 ⏰ <b>타임프레임별 분석</b>
 ${tfSummary}
@@ -1739,39 +1823,39 @@ async function sendPeriodicReport(){
 }
 
 // ── 신호 변경 시 즉시 발송 ─────────────────────────────────
-function checkSignalChange(results){
+function checkSignalChange(results, weightedScore){
   if(!TG_CONFIG.enabled) return;
-  let buyCount=0, sellCount=0, totalScore=0;
-  const tfs=Object.keys(results);
-  const matching=[];
-  tfs.forEach(t=>{
-    const r=results[t];if(!r)return;
-    if(r.dir==='buy' &&r.score>=50){buyCount++;matching.push(t);}
-    if(r.dir==='sell'&&r.score<=-50){sellCount++;matching.push(t);}
-    totalScore+=r.score;
-  });
-  const avg=Math.abs(totalScore/(tfs.length||1));
-  const newDir=buyCount>=3?'buy':sellCount>=3?'sell':null;
+  const h4dir=results['4h']?.dir||'neutral';
+  const ws=weightedScore||0;
+  const newDir=(ws>=55&&h4dir==='buy')?'buy':(ws<=-55&&h4dir==='sell')?'sell':null;
 
-  // 방향이 바뀌었을 때만 발송
-  if(newDir && newDir!==lastSignalDir && avg>=TG_CONFIG.minScore){
+  if(newDir&&newDir!==lastSignalDir&&Math.abs(ws)>=TG_CONFIG.minScore){
     lastSignalDir=newDir;
     const price=candles.length?candles[candles.length-1].close:0;
     const isBuy=newDir==='buy';
+    const tfDetail=MTF_TFS.map(t=>{
+      const r=results[t];if(!r)return'';
+      const w=MTF_WEIGHT[t];
+      const icon=r.dir==='buy'&&r.score>=50?'🟢':r.dir==='sell'&&r.score<=-50?'🔴':'🟡';
+      const dir=r.dir==='buy'?'매수':r.dir==='sell'?'매도':'중립';
+      return`${icon} ${MTF_LABEL[t]} (${MTF_ROLE[t]}) — ${dir} ${Math.abs(r.score)}점`;
+    }).filter(Boolean).join('\n');
     const msg=`${isBuy?'🚨🟢':'🚨🔴'} <b>신호 변경! ${isBuy?'매수':'매도'} — ${currentSym}</b>
 
 💰 현재가: <b>$${fmt(price)}</b>
-⭐ 신뢰도: <b>${avg.toFixed(0)}점</b>
-✅ ${matching.length}개 타임프레임 일치
-${matching.map(t=>`• ${MTF_LABEL[t]}`).join('\n')}
+⭐ 가중 통합점수: <b>${Math.abs(ws).toFixed(0)}점</b>
+🕯 4시간봉: <b>${h4dir==='buy'?'🟢 매수':'🔴 매도'} (필수)</b>
+
+📊 <b>타임프레임 분석</b>
+${tfDetail}
 
 ${isBuy?'📈 매수 검토 구간':'📉 매도/관망 구간'}
 🕐 ${new Date().toLocaleString('ko-KR')}
 ⚠️ <i>참고용 · 투자 결정은 본인 책임</i>`;
     sendTelegram(msg);
-    showMTFToast(isBuy, price, avg, matching.length);
+    showMTFToast(isBuy,price,Math.abs(ws),MTF_TFS.length);
   } else if(!newDir){
-    lastSignalDir=null; // 중립 복귀 시 초기화
+    lastSignalDir=null;
   }
 }
 
