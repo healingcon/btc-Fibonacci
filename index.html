@@ -1464,43 +1464,63 @@ async function analyzeMTF(){
   checkMTFSignal(sym,results);
 }
 
+function getMTFLevel(results){
+  // 각 타임프레임 방향 추출
+  const h4  = results['4h'];
+  const h1  = results['1h'];
+  const m15 = results['15m'];
+
+  const h4buy  = h4?.dir==='buy'  && h4?.score>=45;
+  const h4sell = h4?.dir==='sell' && h4?.score<=-45;
+  const h1buy  = h1?.dir==='buy'  && h1?.score>=40;
+  const h1sell = h1?.dir==='sell' && h1?.score<=-40;
+  const m15buy = m15?.dir==='buy' && m15?.score>=35;
+  const m15sell= m15?.dir==='sell'&& m15?.score<=-35;
+
+  // 가중 통합 점수
+  let wSum=0,wTotal=0;
+  MTF_TFS.forEach(t=>{
+    const r=results[t];if(!r)return;
+    const w=MTF_WEIGHT[t];
+    wSum+=r.score*w; wTotal+=w;
+  });
+  const ws = wTotal>0 ? wSum/wTotal : 0;
+
+  // ── 5단계 판단 ──────────────────────────────
+  if(h4buy && h1buy && m15buy)
+    return {level:2, label:'🟢🟢 강한매수', col:'#10b981', action:'진입 검토', ws};
+  if(h4buy && h1buy && !m15buy)
+    return {level:1, label:'🟢 매수대기', col:'#34d399', action:'15m 돌아설 때 진입', ws};
+  if(h4sell && h1sell && m15sell)
+    return {level:-2, label:'🔴🔴 강한매도', col:'#ef4444', action:'매도/관망', ws};
+  if(h4sell && h1sell && !m15sell)
+    return {level:-1, label:'🔴 매도대기', col:'#f87171', action:'15m 확인 후 매도', ws};
+  return {level:0, label:'🟡 관망', col:'#fbbf24', action:'방향 불일치 — 대기', ws};
+}
+
 function checkMTFSignal(sym,results){
   const tfs=Object.keys(results).filter(t=>MTF_TFS.includes(t));
   if(tfs.length<2) return;
 
-  // ── 가중치 통합 점수 계산 ──────────────────────────────
-  let weightedSum=0, totalWeight=0;
-  tfs.forEach(t=>{
-    const r=results[t]; if(!r) return;
-    const w=MTF_WEIGHT[t]||1;
-    weightedSum += r.score * w;
-    totalWeight += w;
-  });
-  const weightedScore = totalWeight>0 ? weightedSum/totalWeight : 0;
-
-  // ── 4시간봉 방향 필수 확인 ────────────────────────────
-  const h4 = results['4h'];
-  const h4dir = h4?.dir || 'neutral';
-
-  // ── 신호 판단 ──────────────────────────────────────────
-  const isBuy  = weightedScore >= 55 && h4dir === 'buy';
-  const isSell = weightedScore <= -55 && h4dir === 'sell';
+  const sig = getMTFLevel(results);
 
   // 신호 변경 감지
-  checkSignalChange(results, weightedScore);
+  checkSignalChange(results, sig);
 
-  if(!isBuy && !isSell) return;
-  if(Math.abs(weightedScore) < TG_CONFIG.minScore) return;
+  // 강한 매수/매도만 텔레그램 발송
+  if(Math.abs(sig.level)<2) return;
+  if(Math.abs(sig.ws) < TG_CONFIG.minScore) return;
 
+  const isBuy = sig.level===2;
   const key=`${sym}_${isBuy?'buy':'sell'}`;
   if(Date.now()-(tgCooldownMap[key]||0)<TG_CONFIG.cooldown) return;
   tgCooldownMap[key]=Date.now();
 
   const matching=tfs.filter(t=>{
-    const r=results[t]; if(!r) return false;
-    return isBuy?(r.dir==='buy'&&r.score>=50):(r.dir==='sell'&&r.score<=-50);
+    const r=results[t];if(!r)return false;
+    return isBuy?(r.dir==='buy'&&r.score>=35):(r.dir==='sell'&&r.score<=-35);
   });
-  buildAndSend(sym,isBuy,results,matching,Math.abs(weightedScore));
+  buildAndSend(sym,isBuy,results,matching,Math.abs(sig.ws));
 }
 
 function buildAndSend(sym,isBuy,results,matching,score){
@@ -1551,73 +1571,39 @@ function updateMTFPanel(results){
   if(!el){
     el=document.createElement('div');el.id='mtf-panel';
     el.style.cssText=`position:fixed;left:8px;bottom:${isMob()?'120':'100'}px;z-index:200;
-      background:rgba(13,17,23,.92);border:1px solid #21262d;border-radius:8px;
-      padding:8px 12px;font-family:'Courier New',monospace;font-size:10px;
-      min-width:160px;backdrop-filter:blur(4px)`;
+      background:rgba(13,17,23,.95);border:1px solid #21262d;border-radius:10px;
+      padding:10px 12px;font-family:'Courier New',monospace;font-size:10px;
+      min-width:175px;backdrop-filter:blur(6px)`;
     document.body.appendChild(el);
   }
-
-  // 가중치 통합 점수 계산
-  let wSum=0,wTotal=0;
-  MTF_TFS.forEach(t=>{
-    const r=results[t];if(!r)return;
-    const w=MTF_WEIGHT[t];
-    wSum+=r.score*w; wTotal+=w;
-  });
-  const ws=wTotal>0?wSum/wTotal:0;
-  const h4dir=results['4h']?.dir||'neutral';
-  const overall=ws>=55&&h4dir==='buy'?'🟢 매수':ws<=-55&&h4dir==='sell'?'🔴 매도':'🟡 관망';
-  const overallCol=ws>=55&&h4dir==='buy'?'#34d399':ws<=-55&&h4dir==='sell'?'#f87171':'#fbbf24';
+  const sig=getMTFLevel(results);
+  el.style.borderColor=sig.col+'66';
 
   const rows=MTF_TFS.map(t=>{
     const r=results[t];
-    const w=MTF_WEIGHT[t];
-    if(!r)return`<div style="color:#30363d">${MTF_LABEL[t]} (×${w}) —</div>`;
-    const col=r.dir==='buy'&&r.score>=50?'#34d399':r.dir==='sell'&&r.score<=-50?'#f87171':'#94a3b8';
-    const icon=r.dir==='buy'&&r.score>=50?'▲':r.dir==='sell'&&r.score<=-50?'▼':'—';
-    return`<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 0">
-      <span style="color:#64748b">${MTF_LABEL[t]}<span style="color:#334155"> ×${w}</span></span>
-      <span style="color:${col};font-weight:700">${icon} ${Math.abs(r.score)}점</span>
+    if(!r)return`<div style="padding:3px 0;border-bottom:1px solid #0f1623;color:#30363d">${MTF_LABEL[t]} —</div>`;
+    const col=r.dir==='buy'&&r.score>=35?'#34d399':r.dir==='sell'&&r.score<=-35?'#f87171':'#94a3b8';
+    const icon=r.dir==='buy'&&r.score>=35?'▲':r.dir==='sell'&&r.score<=-35?'▼':'—';
+    const dir=r.dir==='buy'?'매수':r.dir==='sell'?'매도':'중립';
+    return`<div style="padding:4px 0;border-bottom:1px solid #0f1623">
+      <div style="display:flex;justify-content:space-between">
+        <span style="color:#94a3b8;font-weight:700">${MTF_LABEL[t]}</span>
+        <span style="color:${col};font-weight:900">${icon} ${Math.abs(r.score)}점</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:1px">
+        <span style="color:#475569;font-size:9px">${MTF_ROLE[t]}</span>
+        <span style="color:${col};font-size:9px;font-weight:600">${dir}</span>
+      </div>
     </div>`;
   }).join('');
 
   el.innerHTML=`
-    <div style="color:#475569;font-size:9px;margin-bottom:6px;letter-spacing:.3px">📊 가중 통합 신호</div>
-    ${MTF_TFS.map(t=>{
-      const r=results[t];
-      const w=MTF_WEIGHT[t];
-      const role=MTF_ROLE[t];
-      if(!r)return`<div style="padding:3px 0;border-bottom:1px solid #0f1623"><div style="color:#30363d;font-size:10px">${MTF_LABEL[t]}</div></div>`;
-      const col=r.dir==='buy'&&r.score>=50?'#34d399':r.dir==='sell'&&r.score<=-50?'#f87171':'#94a3b8';
-      const icon=r.dir==='buy'&&r.score>=50?'▲':r.dir==='sell'&&r.score<=-50?'▼':'—';
-      const dirLabel=r.dir==='buy'?'매수':r.dir==='sell'?'매도':'중립';
-      return`<div style="padding:4px 0;border-bottom:1px solid #0f1623">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <span style="color:#94a3b8;font-size:10px;font-weight:700">${MTF_LABEL[t]}</span>
-            <span style="color:#334155;font-size:9px;margin-left:4px">×${w}</span>
-          </div>
-          <span style="color:${col};font-weight:900;font-size:11px">${icon} ${Math.abs(r.score)}점</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1px">
-          <span style="color:#475569;font-size:9px">${role}</span>
-          <span style="color:${col};font-size:9px;font-weight:600">${dirLabel}</span>
-        </div>
-      </div>`;
-    }).join('')}
-    <div style="padding-top:6px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span style="color:#475569;font-size:9px">통합판단</span>
-        <span style="color:${overallCol};font-weight:900;font-size:12px">${overall}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:2px">
-        <span style="color:#334155;font-size:9px">가중점수</span>
-        <span style="color:${overallCol};font-size:10px;font-weight:700">${Math.abs(ws).toFixed(0)}점</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;margin-top:2px">
-        <span style="color:#334155;font-size:9px">4h 큰추세</span>
-        <span style="font-size:9px">${h4dir==='buy'?'🟢 매수':h4dir==='sell'?'🔴 매도':'🟡 중립'}</span>
-      </div>
+    <div style="color:#475569;font-size:9px;margin-bottom:6px">📊 멀티 타임프레임</div>
+    ${rows}
+    <div style="margin-top:8px;padding:7px 8px;border-radius:7px;
+      background:${sig.col}18;border:1px solid ${sig.col}44;text-align:center">
+      <div style="color:${sig.col};font-weight:900;font-size:13px">${sig.label}</div>
+      <div style="color:${sig.col};font-size:9px;margin-top:3px;opacity:.85">${sig.action}</div>
     </div>`;
 }
 
@@ -1823,37 +1809,38 @@ async function sendPeriodicReport(){
 }
 
 // ── 신호 변경 시 즉시 발송 ─────────────────────────────────
-function checkSignalChange(results, weightedScore){
+function checkSignalChange(results, sig){
   if(!TG_CONFIG.enabled) return;
-  const h4dir=results['4h']?.dir||'neutral';
-  const ws=weightedScore||0;
-  const newDir=(ws>=55&&h4dir==='buy')?'buy':(ws<=-55&&h4dir==='sell')?'sell':null;
+  const newLevel = sig.level;
+  const newDir = newLevel>0?'buy':newLevel<0?'sell':null;
 
-  if(newDir&&newDir!==lastSignalDir&&Math.abs(ws)>=TG_CONFIG.minScore){
+  if(newDir && newDir!==lastSignalDir){
     lastSignalDir=newDir;
     const price=candles.length?candles[candles.length-1].close:0;
     const isBuy=newDir==='buy';
     const tfDetail=MTF_TFS.map(t=>{
       const r=results[t];if(!r)return'';
-      const w=MTF_WEIGHT[t];
-      const icon=r.dir==='buy'&&r.score>=50?'🟢':r.dir==='sell'&&r.score<=-50?'🔴':'🟡';
+      const icon=r.dir==='buy'&&r.score>=35?'🟢':r.dir==='sell'&&r.score<=-35?'🔴':'🟡';
       const dir=r.dir==='buy'?'매수':r.dir==='sell'?'매도':'중립';
-      return`${icon} ${MTF_LABEL[t]} (${MTF_ROLE[t]}) — ${dir} ${Math.abs(r.score)}점`;
+      return`${icon} ${MTF_LABEL[t]} — ${MTF_ROLE[t]}\n   └ ${dir} ${Math.abs(r.score)}점`;
     }).filter(Boolean).join('\n');
-    const msg=`${isBuy?'🚨🟢':'🚨🔴'} <b>신호 변경! ${isBuy?'매수':'매도'} — ${currentSym}</b>
+
+    const msg=`${sig.label} — ${currentSym}
 
 💰 현재가: <b>$${fmt(price)}</b>
-⭐ 가중 통합점수: <b>${Math.abs(ws).toFixed(0)}점</b>
-🕯 4시간봉: <b>${h4dir==='buy'?'🟢 매수':'🔴 매도'} (필수)</b>
+🎯 행동: <b>${sig.action}</b>
+⭐ 가중점수: <b>${Math.abs(sig.ws).toFixed(0)}점</b>
 
 📊 <b>타임프레임 분석</b>
 ${tfDetail}
 
-${isBuy?'📈 매수 검토 구간':'📉 매도/관망 구간'}
+${Math.abs(sig.level)===2
+  ? (isBuy?'📈 4h+1h+15m 모두 매수 → 진입 검토':'📉 4h+1h+15m 모두 매도 → 매도/관망')
+  : (isBuy?'⏳ 4h+1h 매수 → 15m 돌아설 때 진입':'⏳ 4h+1h 매도 → 15m 확인 후 매도')}
 🕐 ${new Date().toLocaleString('ko-KR')}
 ⚠️ <i>참고용 · 투자 결정은 본인 책임</i>`;
     sendTelegram(msg);
-    showMTFToast(isBuy,price,Math.abs(ws),MTF_TFS.length);
+    showMTFToast(isBuy, price, Math.abs(sig.ws), Math.abs(sig.level));
   } else if(!newDir){
     lastSignalDir=null;
   }
