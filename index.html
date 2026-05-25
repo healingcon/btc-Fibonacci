@@ -1465,37 +1465,84 @@ async function analyzeMTF(){
 }
 
 function getMTFLevel(results){
-  // 각 타임프레임 방향 추출
   const h4  = results['4h'];
   const h1  = results['1h'];
   const m15 = results['15m'];
 
-  const h4buy  = h4?.dir==='buy'  && h4?.score>=45;
-  const h4sell = h4?.dir==='sell' && h4?.score<=-45;
-  const h1buy  = h1?.dir==='buy'  && h1?.score>=40;
-  const h1sell = h1?.dir==='sell' && h1?.score<=-40;
-  const m15buy = m15?.dir==='buy' && m15?.score>=35;
-  const m15sell= m15?.dir==='sell'&& m15?.score<=-35;
+  // ── 기준 완화 (기존보다 10~15점 낮춤) ────────────────
+  const h4long  = h4?.dir==='buy'  && h4?.score>=30;
+  const h4short = h4?.dir==='sell' && h4?.score<=-30;
+  const h1long  = h1?.dir==='buy'  && h1?.score>=25;
+  const h1short = h1?.dir==='sell' && h1?.score<=-25;
+  const m15long = m15?.dir==='buy' && m15?.score>=20;
+  const m15short= m15?.dir==='sell'&& m15?.score<=-20;
 
   // 가중 통합 점수
   let wSum=0,wTotal=0;
   MTF_TFS.forEach(t=>{
     const r=results[t];if(!r)return;
-    const w=MTF_WEIGHT[t];
-    wSum+=r.score*w; wTotal+=w;
+    wSum+=r.score*MTF_WEIGHT[t]; wTotal+=MTF_WEIGHT[t];
   });
   const ws = wTotal>0 ? wSum/wTotal : 0;
 
-  // ── 5단계 판단 ──────────────────────────────
-  if(h4buy && h1buy && m15buy)
-    return {level:2, label:'🟢🟢 강한매수', col:'#10b981', action:'진입 검토', ws};
-  if(h4buy && h1buy && !m15buy)
-    return {level:1, label:'🟢 매수대기', col:'#34d399', action:'15m 돌아설 때 진입', ws};
-  if(h4sell && h1sell && m15sell)
-    return {level:-2, label:'🔴🔴 강한매도', col:'#ef4444', action:'매도/관망', ws};
-  if(h4sell && h1sell && !m15sell)
-    return {level:-1, label:'🔴 매도대기', col:'#f87171', action:'15m 확인 후 매도', ws};
-  return {level:0, label:'🟡 관망', col:'#fbbf24', action:'방향 불일치 — 대기', ws};
+  // ── 추가 필터: RSI + 거래량 ───────────────────────────
+  const m15rsi = m15?.sigs?.find(s=>s.cat==='RSI');
+  const m15vol = m15?.sigs?.find(s=>s.cat==='거래량');
+  const rsiOk  = m15rsi ? !m15rsi.name.includes('과열') && !m15rsi.name.includes('침체') : true;
+  const volOk  = m15vol ? m15vol.dir!=='sell' : true; // 거래량이 매도압 아닐 때
+
+  // ── 신뢰도 점수 계산 (0~100) ─────────────────────────
+  function calcConf(isLong){
+    let conf=0;
+    if(isLong){
+      if(h4long)  conf+=35; // 4h 큰추세 (가장 중요)
+      if(h1long)  conf+=30; // 1h 중기
+      if(m15long) conf+=20; // 15m 진입타이밍
+      if(rsiOk)   conf+=8;
+      if(volOk)   conf+=7;
+    } else {
+      if(h4short) conf+=35;
+      if(h1short) conf+=30;
+      if(m15short)conf+=20;
+      if(rsiOk)   conf+=8;
+      if(!volOk)  conf+=7;
+    }
+    return conf;
+  }
+
+  // ── 5단계 판단 ────────────────────────────────────────
+  // 강한 롱: 4h+1h+15m 모두 + 신뢰도 75↑
+  if(h4long && h1long && m15long && calcConf(true)>=75)
+    return {level:2, label:'🚀 강한 롱', sublabel:'LONG ●●●', col:'#10b981',
+      action:'진입 검토', conf:calcConf(true), ws};
+
+  // 롱 대기: 4h+1h 롱, 15m 아직
+  if(h4long && h1long && !m15long)
+    return {level:1, label:'📈 롱 대기', sublabel:'LONG ●●○', col:'#34d399',
+      action:'15m 롱 전환 시 진입', conf:calcConf(true), ws};
+
+  // 약한 롱: 4h만 롱 + 1h 중립
+  if(h4long && !h1short && ws>15)
+    return {level:0.5, label:'📊 롱 준비', sublabel:'LONG ●○○', col:'#6ee7b7',
+      action:'1h 방향 확인 후 판단', conf:calcConf(true), ws};
+
+  // 강한 숏: 4h+1h+15m 모두 + 신뢰도 75↑
+  if(h4short && h1short && m15short && calcConf(false)>=75)
+    return {level:-2, label:'💀 강한 숏', sublabel:'SHORT ●●●', col:'#ef4444',
+      action:'숏 진입 검토', conf:calcConf(false), ws};
+
+  // 숏 대기: 4h+1h 숏, 15m 아직
+  if(h4short && h1short && !m15short)
+    return {level:-1, label:'📉 숏 대기', sublabel:'SHORT ●●○', col:'#f87171',
+      action:'15m 숏 전환 시 진입', conf:calcConf(false), ws};
+
+  // 약한 숏: 4h만 숏 + 1h 중립
+  if(h4short && !h1long && ws<-15)
+    return {level:-0.5, label:'📊 숏 준비', sublabel:'SHORT ●○○', col:'#fca5a5',
+      action:'1h 방향 확인 후 판단', conf:calcConf(false), ws};
+
+  return {level:0, label:'⏸ 관망', sublabel:'WAIT', col:'#fbbf24',
+    action:'방향 불일치 — 대기', conf:0, ws};
 }
 
 function checkMTFSignal(sym,results){
@@ -1549,19 +1596,29 @@ function buildAndSend(sym,isBuy,results,matching,score){
   console.log('MTF신호:',dir,score.toFixed(0)+'점',matching);
 }
 
-function showMTFToast(isBuy,price,score,count){
+function showMTFToast(isLong,price,conf,level){
   let t=document.getElementById('mtf-toast');
   if(!t){t=document.createElement('div');t.id='mtf-toast';document.body.appendChild(t);}
-  const col=isBuy?'#34d399':'#f87171';
+  const col=isLong?'#10b981':'#ef4444';
+  const strong=Math.abs(level)>=2;
+  const label=isLong?(strong?'🚀 강한 롱':'📈 롱 대기'):(strong?'💀 강한 숏':'📉 숏 대기');
+  const confCol=conf>=75?'#10b981':conf>=50?'#fbbf24':'#f87171';
   t.style.cssText=`position:fixed;bottom:90px;left:50%;transform:translateX(-50%);z-index:99996;
-    background:${isBuy?'rgba(0,40,20,.97)':'rgba(40,0,0,.97)'};border:2px solid ${col};
+    background:${isLong?'rgba(0,30,15,.97)':'rgba(30,0,0,.97)'};border:2px solid ${col};
     border-radius:12px;padding:12px 24px;text-align:center;
-    font-family:'Courier New',monospace;box-shadow:0 0 30px ${col}55;min-width:240px;
+    font-family:'Courier New',monospace;box-shadow:0 0 30px ${col}55;min-width:260px;
     animation:crossSlideIn .3s ease-out`;
-  t.innerHTML=`<div style="font-size:18px;font-weight:900;color:${col}">${isBuy?'🟢 매수 신호':'🔴 매도 신호'}</div>
-    <div style="font-size:12px;color:#94a3b8;margin-top:3px">$${fmt(price)} · 신뢰도 ${score.toFixed(0)}점</div>
-    <div style="font-size:11px;color:${col};margin-top:3px">${count}개 타임프레임 일치 ✅</div>
-    ${TG_CONFIG.enabled?'<div style="font-size:10px;color:#64748b;margin-top:3px">📱 텔레그램 발송됨</div>':''}`;
+  t.innerHTML=`
+    <div style="font-size:20px;font-weight:900;color:${col};margin-bottom:4px">${label}</div>
+    <div style="font-size:12px;color:#94a3b8">$${fmt(price)}</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+      <span style="color:#475569;font-size:10px">신뢰도</span>
+      <div style="flex:1;height:5px;background:#1e2736;border-radius:3px">
+        <div style="height:5px;border-radius:3px;background:${confCol};width:${conf}%"></div>
+      </div>
+      <span style="color:${confCol};font-size:11px;font-weight:700">${conf}%</span>
+    </div>
+    ${TG_CONFIG.enabled?'<div style="font-size:10px;color:#64748b;margin-top:6px">📱 텔레그램 발송됨</div>':''}`;
   t.style.opacity='1';clearTimeout(t._t);
   t._t=setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),400);},6000);
 }
@@ -1573,37 +1630,60 @@ function updateMTFPanel(results){
     el.style.cssText=`position:fixed;left:8px;bottom:${isMob()?'120':'100'}px;z-index:200;
       background:rgba(13,17,23,.95);border:1px solid #21262d;border-radius:10px;
       padding:10px 12px;font-family:'Courier New',monospace;font-size:10px;
-      min-width:175px;backdrop-filter:blur(6px)`;
+      min-width:185px;backdrop-filter:blur(6px)`;
     document.body.appendChild(el);
   }
   const sig=getMTFLevel(results);
-  el.style.borderColor=sig.col+'66';
+  el.style.borderColor=sig.col+'77';
 
+  // 타임프레임 행
   const rows=MTF_TFS.map(t=>{
     const r=results[t];
     if(!r)return`<div style="padding:3px 0;border-bottom:1px solid #0f1623;color:#30363d">${MTF_LABEL[t]} —</div>`;
-    const col=r.dir==='buy'&&r.score>=35?'#34d399':r.dir==='sell'&&r.score<=-35?'#f87171':'#94a3b8';
-    const icon=r.dir==='buy'&&r.score>=35?'▲':r.dir==='sell'&&r.score<=-35?'▼':'—';
-    const dir=r.dir==='buy'?'매수':r.dir==='sell'?'매도':'중립';
+    const isLong =r.dir==='buy' &&r.score>=20;
+    const isShort=r.dir==='sell'&&r.score<=-20;
+    const col=isLong?'#34d399':isShort?'#f87171':'#94a3b8';
+    const badge=isLong?'🟢 LONG':isShort?'🔴 SHORT':'🟡 중립';
     return`<div style="padding:4px 0;border-bottom:1px solid #0f1623">
-      <div style="display:flex;justify-content:space-between">
-        <span style="color:#94a3b8;font-weight:700">${MTF_LABEL[t]}</span>
-        <span style="color:${col};font-weight:900">${icon} ${Math.abs(r.score)}점</span>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <span style="color:#94a3b8;font-weight:700;font-size:10px">${MTF_LABEL[t]}</span>
+          <span style="color:#334155;font-size:8px;margin-left:3px">${MTF_ROLE[t]}</span>
+        </div>
+        <span style="color:${col};font-weight:900;font-size:10px">${badge}</span>
       </div>
       <div style="display:flex;justify-content:space-between;margin-top:1px">
-        <span style="color:#475569;font-size:9px">${MTF_ROLE[t]}</span>
-        <span style="color:${col};font-size:9px;font-weight:600">${dir}</span>
+        <div style="height:3px;flex:1;background:#1e2736;border-radius:2px;margin-top:3px;margin-right:6px">
+          <div style="height:3px;border-radius:2px;background:${col};width:${Math.min(100,Math.abs(r.score))}%"></div>
+        </div>
+        <span style="color:${col};font-size:9px">${Math.abs(r.score)}점</span>
       </div>
     </div>`;
   }).join('');
 
+  // 신뢰도 바
+  const confPct = sig.conf||0;
+  const confCol = confPct>=75?'#10b981':confPct>=50?'#fbbf24':'#f87171';
+
   el.innerHTML=`
-    <div style="color:#475569;font-size:9px;margin-bottom:6px">📊 멀티 타임프레임</div>
+    <div style="color:#475569;font-size:9px;margin-bottom:6px;letter-spacing:.3px">📊 멀티 타임프레임 신호</div>
     ${rows}
-    <div style="margin-top:8px;padding:7px 8px;border-radius:7px;
-      background:${sig.col}18;border:1px solid ${sig.col}44;text-align:center">
-      <div style="color:${sig.col};font-weight:900;font-size:13px">${sig.label}</div>
-      <div style="color:${sig.col};font-size:9px;margin-top:3px;opacity:.85">${sig.action}</div>
+    <div style="margin-top:8px;padding:8px;border-radius:8px;
+      background:${sig.col}15;border:1px solid ${sig.col}44">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="color:${sig.col};font-weight:900;font-size:14px">${sig.label}</span>
+        <span style="color:#475569;font-size:9px;background:#0f1623;padding:1px 6px;border-radius:3px">${sig.sublabel}</span>
+      </div>
+      <div style="font-size:9px;color:${sig.col};opacity:.8;margin-bottom:6px">${sig.action}</div>
+      <!-- 신뢰도 바 -->
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="color:#475569;font-size:9px;flex-shrink:0">신뢰도</span>
+        <div style="flex:1;height:5px;background:#1e2736;border-radius:3px">
+          <div style="height:5px;border-radius:3px;background:${confCol};
+            width:${confPct}%;transition:width .3s"></div>
+        </div>
+        <span style="color:${confCol};font-size:10px;font-weight:700;min-width:28px;text-align:right">${confPct}%</span>
+      </div>
     </div>`;
 }
 
@@ -1812,35 +1892,41 @@ async function sendPeriodicReport(){
 function checkSignalChange(results, sig){
   if(!TG_CONFIG.enabled) return;
   const newLevel = sig.level;
-  const newDir = newLevel>0?'buy':newLevel<0?'sell':null;
+  const newDir = newLevel>0?'long':newLevel<0?'short':null;
 
   if(newDir && newDir!==lastSignalDir){
     lastSignalDir=newDir;
     const price=candles.length?candles[candles.length-1].close:0;
-    const isBuy=newDir==='buy';
+    const isLong=newDir==='long';
+
     const tfDetail=MTF_TFS.map(t=>{
       const r=results[t];if(!r)return'';
-      const icon=r.dir==='buy'&&r.score>=35?'🟢':r.dir==='sell'&&r.score<=-35?'🔴':'🟡';
-      const dir=r.dir==='buy'?'매수':r.dir==='sell'?'매도':'중립';
-      return`${icon} ${MTF_LABEL[t]} — ${MTF_ROLE[t]}\n   └ ${dir} ${Math.abs(r.score)}점`;
+      const isL=r.dir==='buy'&&r.score>=20;
+      const isS=r.dir==='sell'&&r.score<=-20;
+      const icon=isL?'🟢':isS?'🔴':'🟡';
+      const dir=isL?'LONG':isS?'SHORT':'중립';
+      return`${icon} ${MTF_LABEL[t]} — ${MTF_ROLE[t]}: ${dir} ${Math.abs(r.score)}점`;
     }).filter(Boolean).join('\n');
 
-    const msg=`${sig.label} — ${currentSym}
+    const confBar='█'.repeat(Math.floor(sig.conf/10))+'░'.repeat(10-Math.floor(sig.conf/10));
+
+    const msg=`${isLong?'🚀':'💀'} <b>${sig.label} — ${currentSym}</b>
 
 💰 현재가: <b>$${fmt(price)}</b>
+📊 신뢰도: <b>${sig.conf}%</b>  [${confBar}]
 🎯 행동: <b>${sig.action}</b>
-⭐ 가중점수: <b>${Math.abs(sig.ws).toFixed(0)}점</b>
 
-📊 <b>타임프레임 분석</b>
+⏰ <b>타임프레임 분석</b>
 ${tfDetail}
 
-${Math.abs(sig.level)===2
-  ? (isBuy?'📈 4h+1h+15m 모두 매수 → 진입 검토':'📉 4h+1h+15m 모두 매도 → 매도/관망')
-  : (isBuy?'⏳ 4h+1h 매수 → 15m 돌아설 때 진입':'⏳ 4h+1h 매도 → 15m 확인 후 매도')}
+${Math.abs(sig.level)>=2
+  ? (isLong?'📈 3개 타임프레임 롱 일치 → 진입 검토':'📉 3개 타임프레임 숏 일치 → 진입 검토')
+  : (isLong?'⏳ 4h+1h 롱 → 15m 롱 전환 대기':'⏳ 4h+1h 숏 → 15m 숏 전환 대기')}
+
 🕐 ${new Date().toLocaleString('ko-KR')}
 ⚠️ <i>참고용 · 투자 결정은 본인 책임</i>`;
     sendTelegram(msg);
-    showMTFToast(isBuy, price, Math.abs(sig.ws), Math.abs(sig.level));
+    showMTFToast(isLong, price, sig.conf, Math.abs(sig.level));
   } else if(!newDir){
     lastSignalDir=null;
   }
