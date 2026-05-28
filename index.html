@@ -25,29 +25,33 @@ button{cursor:pointer;font-family:inherit;border:none;outline:none}
 .tf-btn{font-size:10px;padding:3px 8px;border-radius:4px;border:1px solid #30363d;background:transparent;color:#8b949e}
 .tf-btn.on{color:#fff;border-color:#58a6ff;background:#1f6feb}
 
-/* ── 신호 패널 ── */
-#sig-panel{background:#161b22;border-bottom:1px solid #21262d;padding:8px 10px;flex-shrink:0;display:flex;gap:10px;align-items:flex-start}
-#sig-left{flex-shrink:0;width:90px}
-#ring-wrap{position:relative;width:72px;height:72px;margin:0 auto}
-#ring-wrap svg{width:72px;height:72px;transform:rotate(-90deg)}
+/* ── 신호 패널 (모바일 최적화) ── */
+#sig-panel{background:#161b22;border-bottom:1px solid #21262d;padding:6px 8px;flex-shrink:0;display:flex;gap:8px;align-items:center}
+#sig-left{flex-shrink:0;display:flex;align-items:center;gap:7px}
+#ring-wrap{position:relative;width:52px;height:52px}
+#ring-wrap svg{width:52px;height:52px;transform:rotate(-90deg)}
 #ring-bg{stroke:#21262d}
 #ring-arc{stroke:#8b949e;transition:stroke-dashoffset .5s,stroke .4s}
 #ring-text{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-#sig-dir{font-size:14px;font-weight:700;color:#8b949e}
-#sig-pct{font-size:9px;color:#484f58}
-#sig-verdict{font-size:11px;font-weight:600;margin-top:4px;padding:4px 8px;border-radius:5px;text-align:center;background:rgba(255,255,255,.04);color:#8b949e;border:1px solid #30363d}
-#sig-mid{flex:1;min-width:0}
-#sig-action{font-size:11px;color:#fbbf24;margin-bottom:5px;font-weight:600}
-#sig-narrative{font-size:10px;color:#94a3b8;line-height:1.65;max-height:90px;overflow-y:auto;scrollbar-width:none}
+#sig-dir{font-size:12px;font-weight:700;color:#8b949e}
+#sig-pct{font-size:8px;color:#484f58}
+#sig-verdict{font-size:11px;font-weight:800;padding:3px 7px;border-radius:5px;text-align:center;background:rgba(255,255,255,.04);color:#8b949e;border:1px solid #30363d;white-space:nowrap}
+#sig-mid{flex:1;min-width:0;overflow:hidden}
+#sig-action{font-size:10px;color:#fbbf24;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px}
+/* 내러티브: 모바일=접힘, 탭하면 펼침 */
+#sig-narrative{font-size:9.5px;color:#94a3b8;line-height:1.6;max-height:0;overflow:hidden;transition:max-height .3s ease}
+#sig-narrative.open{max-height:200px;overflow-y:auto}
 #sig-narrative::-webkit-scrollbar{display:none}
 .narr-line{padding:1.5px 0;border-bottom:1px solid #0f1623}
-#sig-right{flex-shrink:0;display:flex;flex-direction:column;gap:4px;min-width:140px}
-.ind-box{background:#0d1117;border:1px solid #21262d;border-radius:4px;padding:4px 7px}
-.ind-name{font-size:8px;color:#484f58;letter-spacing:.3px;text-transform:uppercase}
-.ind-val{font-size:12px;font-weight:700;color:#8b949e}
-.ind-bar{height:3px;background:#21262d;border-radius:2px;margin:2px 0}
-.ind-fill{height:3px;border-radius:2px;background:#58a6ff;width:50%}
-.ind-desc{font-size:9px;color:#484f58}
+#narr-toggle{font-size:8px;color:#475569;background:none;border:none;cursor:pointer;padding:0;margin-top:1px}
+/* 지표 카드: 가로 한 줄 (모바일) */
+#sig-right{flex-shrink:0;display:flex;flex-direction:row;gap:4px}
+.ind-box{background:#0d1117;border:1px solid #21262d;border-radius:4px;padding:3px 6px;min-width:52px}
+.ind-name{font-size:7px;color:#484f58;letter-spacing:.2px;text-transform:uppercase}
+.ind-val{font-size:11px;font-weight:700;color:#8b949e;line-height:1.2}
+.ind-bar{height:2px;background:#21262d;border-radius:2px;margin:2px 0}
+.ind-fill{height:2px;border-radius:2px;background:#58a6ff;width:50%}
+.ind-desc{font-size:8px;color:#484f58}
 
 /* ── 차트 ── */
 #chart-wrap{flex:1;position:relative;min-height:0}
@@ -58,16 +62,29 @@ button{cursor:pointer;font-family:inherit;border:none;outline:none}
 @keyframes sp{to{transform:rotate(360deg)}}
 #spin-msg{font-size:11px;color:#484f58;margin-top:8px}
 
-/* ── MTF 위젯 (우하단) ── */
-#mtf-widget{position:absolute;right:8px;bottom:8px;background:rgba(13,17,23,.95);border:1px solid #21262d;border-radius:8px;padding:8px 10px;font-size:10px;min-width:140px;z-index:5;backdrop-filter:blur(4px)}
-#mtf-title{font-size:8px;color:#475569;margin-bottom:5px;letter-spacing:.3px}
-.mtf-row{display:flex;justify-content:space-between;padding:1.5px 0;border-bottom:1px solid #0f1623}
+/* ── MTF 위젯 (드래그 가능) ── */
+#mtf-widget{
+  position:fixed;right:8px;bottom:60px;
+  background:rgba(13,17,23,.96);border:1px solid #30363d;border-radius:10px;
+  padding:0;font-size:10px;min-width:148px;z-index:50;
+  backdrop-filter:blur(8px);user-select:none;touch-action:none;
+  box-shadow:0 4px 20px rgba(0,0,0,.5);
+}
+#mtf-handle{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:6px 10px 4px;cursor:grab;border-bottom:1px solid #1a2030;
+}
+#mtf-handle:active{cursor:grabbing;}
+#mtf-title{font-size:8px;color:#475569;letter-spacing:.3px}
+#mtf-minimize{font-size:10px;color:#475569;background:none;border:none;cursor:pointer;padding:0;line-height:1}
+#mtf-body{padding:6px 10px 8px}
+.mtf-row{display:flex;justify-content:space-between;align-items:center;padding:2px 0;border-bottom:1px solid #0f1623}
 .mtf-row:last-child{border:none}
-.mtf-tf{color:#64748b}
-.mtf-sig{font-weight:700}
+.mtf-tf{color:#64748b;font-size:9px}
+.mtf-sig{font-weight:700;font-size:9px}
 #mtf-result{margin-top:5px;padding-top:5px;border-top:1px solid #1e2736;text-align:center}
-#mtf-label{font-size:12px;font-weight:900}
-#mtf-conf-wrap{display:flex;align-items:center;gap:4px;margin-top:3px}
+#mtf-label{font-size:12px;font-weight:900;line-height:1.3}
+#mtf-conf-wrap{display:flex;align-items:center;gap:4px;margin-top:4px}
 #mtf-conf-bar-bg{flex:1;height:4px;background:#1e2736;border-radius:2px}
 #mtf-conf-bar{height:4px;border-radius:2px;background:#fbbf24;width:0%;transition:width .4s}
 #mtf-conf-pct{font-size:9px;color:#fbbf24;min-width:28px;text-align:right}
@@ -86,7 +103,22 @@ button{cursor:pointer;font-family:inherit;border:none;outline:none}
 #tg-test{background:rgba(52,211,153,.1);border:1px solid #34d399;color:#34d399}
 #tg-close{background:transparent;border:1px solid #30363d;color:#64748b;flex:0 0 36px}
 
-/* ── 토스트 ── */
+/* ── 거래소/코인 선택 ── */
+#exch-row{display:flex;align-items:center;gap:5px;margin-bottom:4px}
+.exch-btn{font-size:10px;padding:3px 10px;border-radius:4px;border:1px solid #30363d;background:transparent;color:#8b949e;font-family:inherit;cursor:pointer}
+.exch-btn.on{color:#fff;border-color:#fbbf24;background:rgba(251,191,36,.15)}
+#search-wrap{display:flex;align-items:center;gap:4px;flex:1;background:#21262d;border:1px solid #30363d;border-radius:5px;padding:2px 6px;max-width:160px}
+#search-input{background:none;border:none;outline:none;color:#e6edf3;font-family:'Courier New',monospace;font-size:11px;width:80px;text-transform:uppercase}
+#search-input::placeholder{color:#484f58;text-transform:none}
+#search-btn{background:none;border:none;color:#58a6ff;font-size:11px;cursor:pointer;padding:0}
+/* 코인 검색 드롭다운 */
+#search-dropdown{position:fixed;background:#161b22;border:1px solid #30363d;border-radius:6px;z-index:200;min-width:160px;max-height:200px;overflow-y:auto;box-shadow:0 4px 20px rgba(0,0,0,.6);display:none}
+#search-dropdown.show{display:block}
+.drop-item{padding:6px 10px;cursor:pointer;font-size:11px;border-bottom:1px solid #21262d;display:flex;justify-content:space-between;align-items:center}
+.drop-item:last-child{border:none}
+.drop-item:hover,.drop-item:active{background:#21262d}
+.drop-coin{color:#e6edf3;font-weight:700}
+.drop-price{color:#64748b;font-size:10px}
 #toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:100;background:#161b22;border:2px solid #fbbf24;border-radius:10px;padding:10px 20px;font-size:13px;font-weight:700;color:#fbbf24;display:none;white-space:nowrap}
 @keyframes fl{0%{opacity:.6}100%{opacity:0}}
 </style>
@@ -102,6 +134,17 @@ button{cursor:pointer;font-family:inherit;border:none;outline:none}
     <span id="conn-badge" style="background:rgba(239,68,68,.15);color:#f87171">연결 중</span>
     <button class="btn" id="btnTG" onclick="openTG()" style="margin-left:auto">📱 TG</button>
   </div>
+  <!-- 거래소 + 코인 검색 -->
+  <div id="exch-row">
+    <button class="exch-btn on" id="excBinance" onclick="setExch('binance')">⬡ Binance</button>
+    <button class="exch-btn" id="excHL" onclick="setExch('hyperliquid')">◎ Hyperliquid</button>
+    <div id="search-wrap">
+      <input id="search-input" placeholder="코인 검색..." maxlength="12"
+        oninput="onSearchInput()" onkeydown="onSearchKey(event)" autocomplete="off" autocorrect="off" spellcheck="false">
+      <button id="search-btn" onclick="doSearch()">🔍</button>
+    </div>
+  </div>
+  <div id="search-dropdown"></div>
   <div id="tf-row">
     <button class="tf-btn on" data-tf="1m">1m</button>
     <button class="tf-btn" data-tf="5m">5m</button>
@@ -124,18 +167,19 @@ button{cursor:pointer;font-family:inherit;border:none;outline:none}
 <div id="sig-panel">
   <div id="sig-left">
     <div id="ring-wrap">
-      <svg viewBox="0 0 72 72"><circle id="ring-bg" cx="36" cy="36" r="27" fill="none" stroke-width="5" stroke-dasharray="169.6"/><circle id="ring-arc" cx="36" cy="36" r="27" fill="none" stroke-width="5" stroke-dasharray="169.6" stroke-dashoffset="169.6" stroke-linecap="round"/></svg>
+      <svg viewBox="0 0 52 52"><circle id="ring-bg" cx="26" cy="26" r="20" fill="none" stroke-width="4" stroke-dasharray="125.6"/><circle id="ring-arc" cx="26" cy="26" r="20" fill="none" stroke-width="4" stroke-dasharray="125.6" stroke-dashoffset="125.6" stroke-linecap="round"/></svg>
       <div id="ring-text"><div id="sig-dir">--</div><div id="sig-pct">0%</div></div>
     </div>
     <div id="sig-verdict">분석 중...</div>
   </div>
   <div id="sig-mid">
     <div id="sig-action" style="color:#475569">MTF 분석 대기 중...</div>
+    <button id="narr-toggle" onclick="toggleNarr()">▼ 시장 분석 보기</button>
     <div id="sig-narrative"><div class="narr-line" style="color:#475569">데이터 수집 중입니다...</div></div>
   </div>
   <div id="sig-right">
     <div class="ind-box">
-      <div class="ind-name">RSI (14)</div>
+      <div class="ind-name">RSI</div>
       <div class="ind-val" id="v-rsi">--</div>
       <div class="ind-bar"><div class="ind-fill" id="f-rsi"></div></div>
       <div class="ind-desc" id="d-rsi">--</div>
@@ -147,7 +191,7 @@ button{cursor:pointer;font-family:inherit;border:none;outline:none}
       <div class="ind-desc" id="d-macd">--</div>
     </div>
     <div class="ind-box">
-      <div class="ind-name">볼린저밴드</div>
+      <div class="ind-name">BB%</div>
       <div class="ind-val" id="v-bb">--</div>
       <div class="ind-bar"><div class="ind-fill" id="f-bb"></div></div>
       <div class="ind-desc" id="d-bb">--</div>
@@ -161,17 +205,22 @@ button{cursor:pointer;font-family:inherit;border:none;outline:none}
   <canvas id="oc"></canvas>
   <div id="spinner"><div class="spin"></div><div id="spin-msg">연결 중...</div></div>
   <div id="mtf-widget">
-    <div id="mtf-title">📊 MTF 통합 신호</div>
-    <div id="mtf-rows">
-      <div class="mtf-row"><span class="mtf-tf">15분봉</span><span class="mtf-sig" id="ms-15m" style="color:#475569">--</span></div>
-      <div class="mtf-row"><span class="mtf-tf">1시간봉</span><span class="mtf-sig" id="ms-1h" style="color:#475569">--</span></div>
-      <div class="mtf-row"><span class="mtf-tf">4시간봉</span><span class="mtf-sig" id="ms-4h" style="color:#475569">--</span></div>
+    <div id="mtf-handle">
+      <span id="mtf-title">⠿ MTF 통합 신호</span>
+      <button id="mtf-minimize" onclick="toggleMTF()">－</button>
     </div>
-    <div id="mtf-result">
-      <div id="mtf-label" style="color:#475569">분석 중...</div>
-      <div id="mtf-conf-wrap">
-        <div id="mtf-conf-bar-bg"><div id="mtf-conf-bar"></div></div>
-        <span id="mtf-conf-pct">0%</span>
+    <div id="mtf-body">
+      <div id="mtf-rows">
+        <div class="mtf-row"><span class="mtf-tf">15분봉</span><span class="mtf-sig" id="ms-15m" style="color:#475569">--</span></div>
+        <div class="mtf-row"><span class="mtf-tf">1시간봉</span><span class="mtf-sig" id="ms-1h" style="color:#475569">--</span></div>
+        <div class="mtf-row"><span class="mtf-tf">4시간봉</span><span class="mtf-sig" id="ms-4h" style="color:#475569">--</span></div>
+      </div>
+      <div id="mtf-result">
+        <div id="mtf-label" style="color:#475569">분석 중...</div>
+        <div id="mtf-conf-wrap">
+          <div id="mtf-conf-bar-bg"><div id="mtf-conf-bar"></div></div>
+          <span id="mtf-conf-pct">0%</span>
+        </div>
       </div>
     </div>
   </div>
@@ -218,13 +267,22 @@ if(!CanvasRenderingContext2D.prototype.roundRect){
 
 // ── 상수 ──────────────────────────────────────────────────
 const FAPI='https://fapi.binance.com/fapi/v1';
+const HLAPI='https://api.hyperliquid.xyz/info';
 const FIB_R=[0,.236,.382,.5,.618,.786,1];
 const FIB_C=['#ff6b6b','#ffa94d','#ffe066','#94d82d','#63e6be','#74c0fc','#a9a9ff'];
 const FIB_N=['고점','23.6%','38.2%','50%','★61.8%','78.6%','저점'];
 const VOLH=55;
 
+// 인기 코인 목록 (자동완성용)
+const POPULAR_COINS=['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT',
+  'MATIC','UNI','ATOM','LTC','BCH','FIL','APT','ARB','OP','INJ',
+  'SUI','TIA','NEAR','FTM','SAND','MANA','AXS','GALA','IMX','BLUR',
+  'WLD','PEPE','FLOKI','BONK','WIF','BOME','ORDI','SATS','STX','RUNE'];
+
 // ── 상태 ──────────────────────────────────────────────────
 let candles=[],tf='1m',currentSym='BTCUSDT',openPrice=0;
+let currentExch='binance'; // 'binance' | 'hyperliquid'
+let hlMeta={}; // Hyperliquid 코인 메타 캐시
 let ws=null,wsAlive=false;
 let pollId=null,oiPollId=null,fundPollId=null;
 let aiFib=null,aiLines=[],aiChannels=[];
@@ -487,9 +545,13 @@ async function runMTF(){
       const cached=mtfCache[t];
       if(cached&&now-cached.ts<ttl[t])cs=cached.candles;
       else{
-        const d=await fetchJSON(`${FAPI}/klines?symbol=${sym}&interval=${t}&limit=220`);
-        cs=d.map(k=>({time:+k[0],open:+k[1],high:+k[2],low:+k[3],close:+k[4],vol:+k[5]}))
-          .filter(c=>c.open>0&&c.close>0);
+        if(currentExch==='hyperliquid'){
+          cs=await fetchHLCandles(sym,t,220);
+        } else {
+          const d=await fetchJSON(`${FAPI}/klines?symbol=${sym}&interval=${t}&limit=220`);
+          cs=d.map(k=>({time:+k[0],open:+k[1],high:+k[2],low:+k[3],close:+k[4],vol:+k[5]}))
+            .filter(c=>c.open>0&&c.close>0);
+        }
         mtfCache[t]={candles:cs,ts:now};
       }
       const tf=calcTF(cs);
@@ -534,8 +596,7 @@ function updateSigPanel(sig,res){
   const dir=sig.level>0?'롱':sig.level<0?'숏':'관망';
   const conf=sig.conf;
   // 링
-  const arc=document.getElementById('ring-arc');
-  arc.style.strokeDashoffset=169.6*(1-conf/100);arc.setAttribute('stroke',col);
+  updateRing(conf,col);
   document.getElementById('sig-dir').textContent=dir;document.getElementById('sig-dir').style.color=col;
   document.getElementById('sig-pct').textContent=conf+'%';
   // 판단
@@ -925,60 +986,305 @@ function draw(){
   }
 }
 
-// ── 캔들 로드 ─────────────────────────────────────────────
-async function fetchJSON(url,timeout=10000){
-  const ctrl=new AbortController(),t=setTimeout(()=>ctrl.abort(),timeout);
-  try{const r=await fetch(url,{signal:ctrl.signal,cache:'no-store'});clearTimeout(t);return r.json();}
-  catch(e){clearTimeout(t);throw e;}
+// ── 거래소 전환 ───────────────────────────────────────────
+function setExch(exch){
+  currentExch=exch;
+  document.getElementById('excBinance').classList.toggle('on',exch==='binance');
+  document.getElementById('excHL').classList.toggle('on',exch==='hyperliquid');
+  // 거래소별 기본 심볼
+  if(exch==='hyperliquid'){
+    currentSym='BTC'; // HL은 BTC 형식 (USDT 없음)
+  } else {
+    currentSym='BTCUSDT';
+  }
+  updateSymBadge();
+  mtfCache={};
+  loadCandles();
 }
+
+function updateSymBadge(){
+  const badge=document.getElementById('sym-badge');
+  const exLabel=currentExch==='hyperliquid'?'HL PERP':'BINANCE PERP';
+  badge.textContent=`${currentSym} ${exLabel}`;
+}
+
+// ── 코인 검색 ─────────────────────────────────────────────
+let searchTimer=null;
+let allCoins=[]; // 거래소에서 가져온 전체 코인 목록
+
+async function loadCoinList(){
+  if(currentExch==='binance'){
+    try{
+      const d=await fetchJSON(`${FAPI}/exchangeInfo`);
+      allCoins=d.symbols
+        .filter(s=>s.contractType==='PERPETUAL'&&s.quoteAsset==='USDT'&&s.status==='TRADING')
+        .map(s=>s.baseAsset)
+        .sort();
+    }catch(e){ allCoins=POPULAR_COINS; }
+  } else {
+    try{
+      const d=await fetchJSON(HLAPI,10000,'POST',{type:'meta'});
+      allCoins=(d.universe||[]).map(c=>c.name).sort();
+      // 메타 저장
+      (d.universe||[]).forEach(c=>{ hlMeta[c.name]=c; });
+    }catch(e){ allCoins=['BTC','ETH','SOL','BNB','AVAX','DOGE','LINK','ARB','OP','INJ']; }
+  }
+}
+
+function onSearchInput(){
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(showDropdown,200);
+}
+
+function showDropdown(){
+  const inp=document.getElementById('search-input');
+  const dd=document.getElementById('search-dropdown');
+  const q=inp.value.trim().toUpperCase();
+  if(!q){dd.classList.remove('show');return;}
+  const matches=(allCoins.length?allCoins:POPULAR_COINS)
+    .filter(c=>c.startsWith(q)||c.includes(q))
+    .slice(0,10);
+  if(!matches.length){dd.classList.remove('show');return;}
+  dd.innerHTML=matches.map(c=>`
+    <div class="drop-item" onclick="selectCoin('${c}')">
+      <span class="drop-coin">${c}</span>
+      <span class="drop-price" id="dp-${c}">--</span>
+    </div>`).join('');
+  // 드롭다운 위치 (input 바로 아래)
+  const rect=inp.getBoundingClientRect();
+  dd.style.left=rect.left+'px';
+  dd.style.top=(rect.bottom+2)+'px';
+  dd.style.width=Math.max(160,rect.width+40)+'px';
+  dd.classList.add('show');
+  // 가격 비동기 채우기
+  matches.slice(0,5).forEach(async c=>{
+    try{
+      let p=0;
+      if(currentExch==='binance'){
+        const r=await fetchJSON(`${FAPI}/ticker/price?symbol=${c}USDT`,3000);
+        p=+r.price;
+      } else {
+        const r=await fetchJSON(HLAPI,3000,'POST',{type:'allMids'});
+        p=+(r[c]||0);
+      }
+      const el=document.getElementById(`dp-${c}`);
+      if(el&&p>0)el.textContent='$'+fmt(p);
+    }catch(e){}
+  });
+}
+
+function selectCoin(coin){
+  document.getElementById('search-dropdown').classList.remove('show');
+  document.getElementById('search-input').value='';
+  if(currentExch==='binance') currentSym=coin+'USDT';
+  else currentSym=coin;
+  updateSymBadge();
+  mtfCache={};
+  loadCandles();
+}
+
+function doSearch(){
+  const q=document.getElementById('search-input').value.trim().toUpperCase();
+  if(!q)return;
+  selectCoin(q);
+}
+
+function onSearchKey(e){
+  if(e.key==='Enter') doSearch();
+  if(e.key==='Escape') document.getElementById('search-dropdown').classList.remove('show');
+}
+
+// 드롭다운 외부 클릭 닫기
+document.addEventListener('click',e=>{
+  if(!e.target.closest('#search-wrap')&&!e.target.closest('#search-dropdown')){
+    document.getElementById('search-dropdown').classList.remove('show');
+  }
+});
+
+// ── Hyperliquid API 래퍼 ──────────────────────────────────
+async function fetchJSON(url,timeout=10000,method='GET',body=null){
+  const ctrl=new AbortController(),t=setTimeout(()=>ctrl.abort(),timeout);
+  try{
+    const opts={signal:ctrl.signal,cache:'no-store',method};
+    if(body){opts.headers={'Content-Type':'application/json'};opts.body=JSON.stringify(body);}
+    const r=await fetch(url,opts);clearTimeout(t);return r.json();
+  }catch(e){clearTimeout(t);throw e;}
+}
+
+async function fetchHLCandles(sym,interval,limit=300){
+  // HL 캔들 interval 변환 (1m→1, 5m→5, 1h→60, 4h→240, 1d→1440)
+  const imap={'1m':1,'5m':5,'15m':15,'1h':60,'4h':240,'1d':1440};
+  const hi=imap[interval]||1;
+  const now=Date.now();
+  const startTime=now-hi*60*1000*limit;
+  const d=await fetchJSON(HLAPI,12000,'POST',{
+    type:'candleSnapshot',
+    req:{coin:sym,interval:`${hi}m`,startTime,endTime:now}
+  });
+  if(!Array.isArray(d))throw new Error('HL 캔들 오류');
+  return d.map(k=>({
+    time:+k.t,open:+k.o,high:+k.h,low:+k.l,close:+k.c,vol:+k.v
+  })).filter(c=>c.open>0&&c.close>0);
+}
+
+async function fetchHLPrice(sym){
+  const d=await fetchJSON(HLAPI,5000,'POST',{type:'allMids'});
+  return +(d[sym]||0);
+}
+// 링 업데이트 함수
+function updateRing(conf,col){
+  const arc=document.getElementById('ring-arc');
+  if(!arc)return;
+  arc.style.strokeDashoffset=125.6*(1-conf/100);
+  arc.setAttribute('stroke',col);
+}
+
+// ── 내러티브 토글 ─────────────────────────────────────────
+let narrOpen=false;
+function toggleNarr(){
+  narrOpen=!narrOpen;
+  const el=document.getElementById('sig-narrative');
+  const btn=document.getElementById('narr-toggle');
+  if(el)el.classList.toggle('open',narrOpen);
+  if(btn)btn.textContent=narrOpen?'▲ 닫기':'▼ 시장 분석 보기';
+}
+
+// ── MTF 위젯 최소화 ───────────────────────────────────────
+let mtfMinimized=false;
+function toggleMTF(){
+  mtfMinimized=!mtfMinimized;
+  const body=document.getElementById('mtf-body');
+  const btn=document.getElementById('mtf-minimize');
+  if(body)body.style.display=mtfMinimized?'none':'block';
+  if(btn)btn.textContent=mtfMinimized?'＋':'－';
+}
+
+// ── MTF 위젯 드래그 ───────────────────────────────────────
+(function(){
+  const w=document.getElementById('mtf-widget');
+  const h=document.getElementById('mtf-handle');
+  if(!w||!h)return;
+  let isDrag=false,startX=0,startY=0,origX=0,origY=0;
+
+  function getPos(){
+    const r=w.getBoundingClientRect();
+    return{x:r.left,y:r.top};
+  }
+  function applyPos(x,y){
+    const maxX=window.innerWidth-w.offsetWidth;
+    const maxY=window.innerHeight-w.offsetHeight;
+    x=Math.max(0,Math.min(maxX,x));
+    y=Math.max(0,Math.min(maxY,y));
+    w.style.left=x+'px';w.style.top=y+'px';
+    w.style.right='auto';w.style.bottom='auto';
+  }
+
+  // 마우스
+  h.addEventListener('mousedown',e=>{
+    if(e.target===document.getElementById('mtf-minimize'))return;
+    isDrag=true;const p=getPos();
+    startX=e.clientX;startY=e.clientY;origX=p.x;origY=p.y;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!isDrag)return;
+    applyPos(origX+(e.clientX-startX),origY+(e.clientY-startY));
+  });
+  document.addEventListener('mouseup',()=>isDrag=false);
+
+  // 터치
+  h.addEventListener('touchstart',e=>{
+    if(e.target===document.getElementById('mtf-minimize'))return;
+    isDrag=true;const p=getPos();
+    startX=e.touches[0].clientX;startY=e.touches[0].clientY;
+    origX=p.x;origY=p.y;
+  },{passive:true});
+  document.addEventListener('touchmove',e=>{
+    if(!isDrag)return;
+    applyPos(origX+(e.touches[0].clientX-startX),origY+(e.touches[0].clientY-startY));
+  },{passive:true});
+  document.addEventListener('touchend',()=>isDrag=false);
+})();
 
 async function loadCandles(){
   candles=[];aiFib=null;aiLines=[];aiChannels=[];
   document.getElementById('spinner').style.display='flex';
   document.getElementById('spin-msg').textContent='데이터 로딩 중...';
-  stopAll();startPolling();
-  // 24h 티커
-  try{
-    const d=await fetchJSON(`${FAPI}/ticker/24hr?symbol=${currentSym}`);
-    updatePrice(+d.lastPrice,+d.highPrice,+d.lowPrice,+d.quoteVolume,+d.openPrice);
-  }catch(e){}
-  // 캔들
-  let loaded=false;
-  const urls=[`${FAPI}/klines?symbol=${currentSym}&interval=${tf}&limit=300`,
-    `https://fapi1.binance.com/fapi/v1/klines?symbol=${currentSym}&interval=${tf}&limit=300`];
-  for(const url of urls){
-    if(loaded)break;
-    try{
-      document.getElementById('spin-msg').textContent='캔들 로딩 중...';
-      const data=await fetchJSON(url);
-      if(!Array.isArray(data)||data.length<10)continue;
-      candles=data.map(d=>({time:+d[0],open:+d[1],high:+d[2],low:+d[3],close:+d[4],vol:+d[5]}))
-        .filter(c=>c.open>0&&c.close>0&&c.high>=c.low);
-      const mids=candles.map(c=>c.close).sort((a,b)=>a-b);
-      const med=mids[Math.floor(mids.length/2)];
-      candles=candles.filter(c=>c.close>med*.4&&c.close<med*2.5);
-      if(candles.length>=10){loaded=true;updatePrice(candles[candles.length-1].close,0,0,0,0);}
-    }catch(e){await new Promise(r=>setTimeout(r,800));}
+  stopAll();
+  updateSymBadge();
+
+  if(currentExch==='hyperliquid'){
+    await loadCandlesHL();
+  } else {
+    await loadCandlesBinance();
   }
+
   document.getElementById('spinner').style.display='none';
-  if(loaded){scheduleAI();scheduleDraw();}
+  if(candles.length>=10){scheduleAI();scheduleDraw();}
   connectWS();
   startFunding();
   setTimeout(()=>startMTF(),2000);
 }
 
-// ── WebSocket ─────────────────────────────────────────────
+async function loadCandlesBinance(){
+  // 24h 티커
+  try{
+    const d=await fetchJSON(`${FAPI}/ticker/24hr?symbol=${currentSym}`);
+    _openP=+d.openPrice||0;
+    updatePrice(+d.lastPrice,0,0,0,_openP);
+  }catch(e){}
+  // 캔들
+  const urls=[`${FAPI}/klines?symbol=${currentSym}&interval=${tf}&limit=300`,
+    `https://fapi1.binance.com/fapi/v1/klines?symbol=${currentSym}&interval=${tf}&limit=300`];
+  for(const url of urls){
+    if(candles.length>=10)break;
+    try{
+      document.getElementById('spin-msg').textContent='캔들 로딩 중...';
+      const data=await fetchJSON(url);
+      if(!Array.isArray(data)||data.length<10)continue;
+      const raw=data.map(d=>({time:+d[0],open:+d[1],high:+d[2],low:+d[3],close:+d[4],vol:+d[5]}))
+        .filter(c=>c.open>0&&c.close>0&&c.high>=c.low);
+      if(raw.length>=10){
+        candles=raw;
+        updatePrice(candles[candles.length-1].close,0,0,0,0);
+      }
+    }catch(e){await new Promise(r=>setTimeout(r,800));}
+  }
+  startPolling();
+}
+
+async function loadCandlesHL(){
+  document.getElementById('spin-msg').textContent='Hyperliquid 연결 중...';
+  try{
+    // 가격
+    const p=await fetchHLPrice(currentSym);
+    if(p>0)updatePrice(p,0,0,0,p);
+    // 캔들
+    const data=await fetchHLCandles(currentSym,tf,300);
+    if(data.length>=10){
+      candles=data;
+      updatePrice(candles[candles.length-1].close,0,0,0,0);
+    }
+  }catch(e){
+    document.getElementById('spin-msg').textContent='HL 연결 실패: '+e.message;
+    await new Promise(r=>setTimeout(r,1000));
+  }
+  // HL은 REST 폴링으로 업데이트
+  startPollingHL();
+}
+
+// ── WebSocket (Binance) ───────────────────────────────────
 function connectWS(){
   if(ws){try{ws.close();}catch(e){}}
+  if(currentExch==='hyperliquid'){setBadge('REST','rgba(56,189,248,.15)','#38bdf8');return;}
   const url=`wss://fstream.binance.com/stream?streams=${currentSym.toLowerCase()}@aggTrade/${currentSym.toLowerCase()}@kline_${tf}`;
   try{
     ws=new WebSocket(url);
     ws.onopen=()=>{wsAlive=true;setBadge('WS','rgba(74,222,128,.2)','#4ade80');};
-    ws.onclose=()=>{wsAlive=false;setBadge('REST','rgba(239,68,68,.15)','#f87171');setTimeout(connectWS,3000);};
+    ws.onclose=()=>{wsAlive=false;setBadge('REST','rgba(239,68,68,.15)','#f87171');setTimeout(()=>{if(currentExch==='binance')connectWS();},3000);};
     ws.onerror=()=>ws.close();
     ws.onmessage=e=>{
-      const d=JSON.parse(e.data);
-      if(!d.data)return;
+      const d=JSON.parse(e.data);if(!d.data)return;
       const s=d.data;
       if(s.e==='aggTrade'){
         const p=+s.p;if(p<=0)return;
@@ -996,6 +1302,33 @@ function connectWS(){
       }
     };
   }catch(e){setBadge('REST','rgba(239,68,68,.15)','#f87171');}
+}
+
+// ── Hyperliquid 폴링 ──────────────────────────────────────
+let hlPollId=null;
+function startPollingHL(){
+  if(hlPollId)clearInterval(hlPollId);
+  hlPollId=setInterval(async()=>{
+    try{
+      // 가격 업데이트
+      const p=await fetchHLPrice(currentSym);
+      if(p>0){
+        updatePrice(p,0,0,0,0);
+        if(candles.length){const c=candles[candles.length-1];if(p>c.high)c.high=p;if(p<c.low)c.low=p;c.close=p;}
+        scheduleDraw();
+      }
+      // 최신 캔들 (3초마다 체크)
+      const latest=await fetchHLCandles(currentSym,tf,5);
+      latest.forEach(nc=>{
+        const idx=candles.findIndex(c=>c.time===nc.time);
+        if(idx>=0){candles[idx]={...candles[idx],...nc};}
+        else if(!candles.length||nc.time>candles[candles.length-1].time){
+          candles.push(nc);if(candles.length>800)candles.shift();scheduleAI();
+        }
+      });
+      scheduleDraw();
+    }catch(e){}
+  },3000);
 }
 
 // ── 폴링 ─────────────────────────────────────────────────
@@ -1037,7 +1370,10 @@ function stopAll(){
   if(pollId)clearInterval(pollId);
   if(fundPollId)clearInterval(fundPollId);
   if(mtfTimer)clearInterval(mtfTimer);
-  pollId=fundPollId=mtfTimer=null;
+  if(hlPollId)clearInterval(hlPollId);
+  if(autoTimer)clearInterval(autoTimer);
+  pollId=fundPollId=mtfTimer=hlPollId=autoTimer=null;
+  if(ws){try{ws.close();}catch(e){} ws=null; wsAlive=false;}
 }
 
 // ── 가격 업데이트 ─────────────────────────────────────────
@@ -1175,6 +1511,7 @@ if(TG.on){
 
 // ── 시작 ──────────────────────────────────────────────────
 resize();
+loadCoinList(); // 코인 목록 미리 로드
 loadCandles();
 </script>
 </body>
