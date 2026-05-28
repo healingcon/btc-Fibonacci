@@ -716,22 +716,188 @@ async function sendTG(msg){
   });}catch(e){}
 }
 function checkTGSignal(res){
-  if(!TG.on)return;
   const sig=getMTFLevel(res);
   const nd=sig.level>0?'long':sig.level<0?'short':null;
-  if(!nd||nd===lastSigDir||sig.conf<TG.minConf)return;
-  const key=`${currentSym}_${nd}`;
-  if(Date.now()-(TG.cooldown[key]||0)<5*60000)return;
-  TG.cooldown[key]=Date.now();lastSigDir=nd;
-  const price=candles.length?candles[candles.length-1].close:0;
-  const bar='█'.repeat(Math.floor(sig.conf/10))+'░'.repeat(10-Math.floor(sig.conf/10));
-  const h4=res['4h'],h1=res['1h'],m15=res['15m'];
-  const tfl=MTF_TFS.map(t=>{
-    const r=res[t];if(!r)return`${MTF_LABEL[t]}: --`;
-    return`${r.tf?.dir==='long'?'🟢':r.tf?.dir==='short'?'🔴':'🟡'} ${MTF_LABEL[t]}: ${r.tf?.dir==='long'?'LONG':r.tf?.dir==='short'?'SHORT':'중립'}`;
-  }).join('\n');
-  sendTG(`${sig.label} — ${currentSym}\n\n💰 $${fmt(price)}\n📊 신뢰도 ${sig.conf}% [${bar}]\n💡 ${sig.action}\n\n${tfl}\n\n🕐 ${new Date().toLocaleString('ko-KR')}\n⚠️ 참고용`);
-  showToast(`${sig.label} (${sig.conf}%)`);
+
+  // 강한 신호 (레벨 ±2) + 신뢰도 60% 이상 + 방향 변경 시 화면 알림
+  if(nd&&nd!==lastSigDir&&Math.abs(sig.level)>=2&&sig.conf>=60){
+    const key=`${currentSym}_${nd}`;
+    if(Date.now()-(TG.cooldown[key]||0)>3*60000){
+      TG.cooldown[key]=Date.now();
+      lastSigDir=nd;
+      const price=candles.length?candles[candles.length-1].close:0;
+      // 화면 알림 + 소리
+      showSignalAlert(sig, price);
+      // 텔레그램
+      if(TG.on){
+        const bar='█'.repeat(Math.floor(sig.conf/10))+'░'.repeat(10-Math.floor(sig.conf/10));
+        const tfl=MTF_TFS.map(t=>{
+          const r=res[t];if(!r)return`${MTF_LABEL[t]}: --`;
+          return`${r.tf?.dir==='long'?'🟢':r.tf?.dir==='short'?'🔴':'🟡'} ${MTF_LABEL[t]}: ${r.tf?.dir==='long'?'LONG':r.tf?.dir==='short'?'SHORT':'중립'}`;
+        }).join('\n');
+        sendTG(`${sig.label} — ${currentSym}\n\n💰 $${fmt(price)}\n📊 신뢰도 ${sig.conf}% [${bar}]\n💡 ${sig.action}\n\n${tfl}\n\n🕐 ${new Date().toLocaleString('ko-KR')}\n⚠️ 참고용`);
+      }
+    }
+  } else if(!nd) lastSigDir=null;
+}
+
+// ── 풀스크린 신호 알림 ────────────────────────────────────
+function showSignalAlert(sig, price){
+  const isLong=sig.level>0;
+
+  // 소리 먼저
+  playSignalSound(isLong);
+
+  // 기존 알림 제거
+  const existing=document.getElementById('sig-alert');
+  if(existing)existing.remove();
+
+  const el=document.createElement('div');
+  el.id='sig-alert';
+  const col=sig.col;
+  const bgCol=isLong?'rgba(0,20,10,.97)':'rgba(20,0,0,.97)';
+  const confPct=sig.conf;
+  const confBar='█'.repeat(Math.floor(confPct/10))+'░'.repeat(10-Math.floor(confPct/10));
+
+  el.style.cssText=`
+    position:fixed;inset:0;z-index:9999;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:${bgCol};
+    border:3px solid ${col};
+    font-family:'Courier New',monospace;
+    cursor:pointer;
+    animation:alertIn .3s cubic-bezier(.34,1.56,.64,1) forwards;
+  `;
+
+  el.innerHTML=`
+    <style>
+      @keyframes alertIn{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}
+      @keyframes pulse{0%,100%{box-shadow:0 0 0 0 ${col}44}50%{box-shadow:0 0 60px 20px ${col}33}}
+      @keyframes countDown{from{width:100%}to{width:0%}}
+      #sig-alert{animation:alertIn .3s ease,pulse 1.5s ease infinite .3s;}
+    </style>
+
+    <!-- 배경 글로우 -->
+    <div style="position:absolute;inset:0;background:radial-gradient(ellipse at center,${col}12 0%,transparent 70%);pointer-events:none"></div>
+
+    <!-- 메인 콘텐츠 -->
+    <div style="text-align:center;padding:20px;position:relative;z-index:1;width:100%;max-width:420px">
+
+      <!-- 아이콘 -->
+      <div style="font-size:72px;margin-bottom:8px;filter:drop-shadow(0 0 20px ${col})">
+        ${isLong?'🚀':'💀'}
+      </div>
+
+      <!-- 신호 이름 -->
+      <div style="font-size:clamp(28px,8vw,48px);font-weight:900;color:${col};
+        text-shadow:0 0 30px ${col};letter-spacing:2px;margin-bottom:4px">
+        ${isLong?'강한 롱':'강한 숏'}
+      </div>
+
+      <!-- 코인 + 가격 -->
+      <div style="font-size:clamp(14px,4vw,22px);color:#e6edf3;margin-bottom:16px;font-weight:700">
+        ${currentSym} — $${fmt(price)}
+      </div>
+
+      <!-- 신뢰도 -->
+      <div style="background:rgba(255,255,255,.06);border:1px solid ${col}55;
+        border-radius:10px;padding:12px 20px;margin-bottom:16px;display:inline-block;min-width:260px">
+        <div style="font-size:11px;color:${col}aa;margin-bottom:6px;letter-spacing:1px">신뢰도</div>
+        <div style="font-size:clamp(28px,7vw,40px);font-weight:900;color:${col};line-height:1">${confPct}%</div>
+        <div style="font-size:13px;color:${col}88;font-family:monospace;margin-top:4px">[${confBar}]</div>
+      </div>
+
+      <!-- MTF 상태 -->
+      <div style="display:flex;justify-content:center;gap:10px;margin-bottom:16px">
+        ${MTF_TFS.map(t=>`
+          <div style="background:${col}18;border:1px solid ${col}44;border-radius:6px;padding:5px 10px;text-align:center">
+            <div style="font-size:9px;color:${col}88">${MTF_LABEL[t]}</div>
+            <div style="font-size:11px;font-weight:700;color:${col}">${isLong?'LONG':'SHORT'}</div>
+          </div>`).join('')}
+      </div>
+
+      <!-- 행동 -->
+      <div style="font-size:clamp(13px,3.5vw,18px);color:#fbbf24;font-weight:700;margin-bottom:20px">
+        💡 ${sig.action}
+      </div>
+
+      <!-- 닫기 안내 -->
+      <div style="font-size:12px;color:rgba(255,255,255,.3)">탭하여 닫기</div>
+    </div>
+
+    <!-- 카운트다운 바 (8초) -->
+    <div style="position:absolute;bottom:0;left:0;right:0;height:4px;background:rgba(255,255,255,.1)">
+      <div style="height:4px;background:${col};border-radius:0 0 0 0;
+        animation:countDown 8s linear forwards;transform-origin:left"></div>
+    </div>
+  `;
+
+  // 탭하면 닫기
+  el.addEventListener('click',()=>{
+    el.style.animation='none';
+    el.style.opacity='0';el.style.transform='scale(.95)';
+    el.style.transition='all .2s ease';
+    setTimeout(()=>el.remove(),200);
+  });
+  document.body.appendChild(el);
+
+  // 8초 후 자동 닫기
+  setTimeout(()=>{
+    if(document.getElementById('sig-alert')===el){
+      el.style.opacity='0';el.style.transform='scale(.95)';
+      el.style.transition='all .4s ease';
+      setTimeout(()=>el.remove(),400);
+    }
+  },8000);
+}
+
+// ── 신호음 ────────────────────────────────────────────────
+let _audioCtx=null;
+function getAudioCtx(){
+  if(!_audioCtx) _audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  return _audioCtx;
+}
+function playSignalSound(isLong){
+  try{
+    const ctx=getAudioCtx();
+    if(ctx.state==='suspended') ctx.resume();
+
+    const playTone=(freq,start,dur,vol=0.3,type='sine')=>{
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      osc.connect(gain);gain.connect(ctx.destination);
+      osc.type=type;osc.frequency.value=freq;
+      gain.gain.setValueAtTime(0,ctx.currentTime+start);
+      gain.gain.linearRampToValueAtTime(vol,ctx.currentTime+start+0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+start+dur);
+      osc.start(ctx.currentTime+start);
+      osc.stop(ctx.currentTime+start+dur+0.05);
+    };
+
+    if(isLong){
+      // 🚀 롱 — 상승 3단 화음 (밝고 힘차게)
+      playTone(440, 0.0, 0.3, 0.25, 'sine');   // A4
+      playTone(523, 0.0, 0.3, 0.15, 'sine');   // C5 (화음)
+      playTone(550, 0.25, 0.35, 0.25, 'sine'); // C#5
+      playTone(659, 0.25, 0.35, 0.15, 'sine'); // E5
+      playTone(659, 0.55, 0.5, 0.30, 'sine');  // E5
+      playTone(880, 0.55, 0.5, 0.18, 'sine');  // A5
+      // 효과음 레이어
+      playTone(220, 0.0, 0.15, 0.08, 'sawtooth');
+      playTone(330, 0.25, 0.15, 0.08, 'sawtooth');
+    } else {
+      // 💀 숏 — 하강 3단 (묵직하고 경고음)
+      playTone(440, 0.0, 0.3, 0.25, 'sine');   // A4
+      playTone(370, 0.0, 0.3, 0.15, 'sine');   // F#4
+      playTone(330, 0.28, 0.35, 0.25, 'sine'); // E4
+      playTone(277, 0.28, 0.35, 0.15, 'sine'); // C#4
+      playTone(220, 0.58, 0.6, 0.30, 'sine');  // A3 (낮고 묵직)
+      playTone(185, 0.58, 0.6, 0.18, 'sine');  // F#3
+      // 경고 효과음
+      playTone(110, 0.0, 0.2, 0.1, 'square');
+      playTone(98,  0.28, 0.2, 0.1, 'square');
+    }
+  }catch(e){console.warn('소리 오류:',e);}
 }
 
 // ── DRAW ──────────────────────────────────────────────────
