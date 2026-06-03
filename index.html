@@ -119,7 +119,23 @@ button{cursor:pointer;font-family:inherit;border:none;outline:none}
 .drop-item:hover,.drop-item:active{background:#21262d}
 .drop-coin{color:#e6edf3;font-weight:700}
 .drop-price{color:#64748b;font-size:10px}
-#toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:100;background:#161b22;border:2px solid #fbbf24;border-radius:10px;padding:10px 20px;font-size:13px;font-weight:700;color:#fbbf24;display:none;white-space:nowrap}
+/* ── 뉴스 티커 ── */
+#news-bar{background:#0d1117;border-top:1px solid #1e2d3d;height:26px;display:flex;align-items:center;flex-shrink:0;overflow:hidden;position:relative;}
+#news-label{flex-shrink:0;background:#1f6feb;color:#fff;font-size:9px;font-weight:700;padding:0 8px;height:100%;display:flex;align-items:center;letter-spacing:.5px;white-space:nowrap;border-right:1px solid #388bfd;z-index:2;}
+#news-scroll{flex:1;overflow:hidden;height:100%;display:flex;align-items:center;}
+#news-track{display:inline-flex;align-items:center;animation:newsScroll 80s linear infinite;white-space:nowrap;}
+#news-track:hover{animation-play-state:paused;}
+@keyframes newsScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.news-item{display:inline-flex;align-items:center;gap:5px;padding:0 18px;font-size:10px;color:#c9d1d9;border-right:1px solid #1e2d3d;cursor:pointer;white-space:nowrap;}
+.news-item:hover{color:#58a6ff;}
+.news-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;}
+.news-time{color:#64748b;font-size:9px;}
+.news-bull{color:#34d399 !important;}
+.news-bear{color:#f87171 !important;}
+#news-bar::after{content:'';position:absolute;right:0;top:0;bottom:0;width:30px;background:linear-gradient(to right,transparent,#0d1117);pointer-events:none;z-index:1;}
+#news-refresh{flex-shrink:0;background:none;border:none;color:#475569;font-size:10px;padding:0 6px;cursor:pointer;height:100%;border-left:1px solid #1e2d3d;}
+#news-refresh:hover{color:#58a6ff;}
+/* ── 토스트 ── */
 @keyframes fl{0%{opacity:.6}100%{opacity:0}}
 </style>
 </head>
@@ -146,7 +162,8 @@ button{cursor:pointer;font-family:inherit;border:none;outline:none}
   </div>
   <div id="search-dropdown"></div>
   <div id="tf-row">
-    <button class="tf-btn on" data-tf="5m">5m</button>
+    <button class="tf-btn on" data-tf="1m">1m</button>
+    <button class="tf-btn" data-tf="5m">5m</button>
     <button class="tf-btn" data-tf="15m">15m</button>
     <button class="tf-btn" data-tf="1h">1h</button>
     <button class="tf-btn" data-tf="4h">4h</button>
@@ -225,6 +242,17 @@ button{cursor:pointer;font-family:inherit;border:none;outline:none}
   </div>
 </div>
 
+<!-- ═══ 뉴스 티커 ═══ -->
+<div id="news-bar">
+  <div id="news-label">📰 NEWS</div>
+  <div id="news-scroll">
+    <div id="news-track">
+      <div class="news-item"><span class="news-dot" style="background:#475569"></span><span style="color:#475569">뉴스 로딩 중...</span></div>
+    </div>
+  </div>
+  <button id="news-refresh" onclick="loadNews()" title="새로고침">⟳</button>
+</div>
+
 <!-- ═══ TG 모달 ═══ -->
 <div id="tg-modal">
   <div id="tg-box">
@@ -279,7 +307,7 @@ const POPULAR_COINS=['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','D
   'WLD','PEPE','FLOKI','BONK','WIF','BOME','ORDI','SATS','STX','RUNE'];
 
 // ── 상태 ──────────────────────────────────────────────────
-let candles=[],tf='5m',currentSym='BTCUSDT',openPrice=0;
+let candles=[],tf='1m',currentSym='BTCUSDT',openPrice=0;
 let currentExch='binance'; // 'binance' | 'hyperliquid'
 let hlMeta={}; // Hyperliquid 코인 메타 캐시
 let ws=null,wsAlive=false;
@@ -576,28 +604,126 @@ function calcTF(cs){
 
 // ── MTF 통합 신호 ─────────────────────────────────────────
 function getMTFLevel(res){
-  const tf4=res['4h']?.tf||{dir:'neutral',conf:0};
-  const tf1=res['1h']?.tf||{dir:'neutral',conf:0};
-  const tf15=res['15m']?.tf||{dir:'neutral',conf:0};
-  if(tf4.dir==='neutral')return{level:0,label:'⏸ 관망',sub:'WAIT',col:'#fbbf24',action:'4h 추세 불명확',conf:0};
-  const isL=tf4.dir==='long';
-  let conf=tf4.conf*.50;
-  conf+=(isL?tf1.dir==='long':tf1.dir==='short')?tf1.conf*.30:0;
-  conf+=(isL?tf15.dir==='long':tf15.dir==='short')?tf15.conf*.20:0;
+  const tf4 = res['4h']?.tf  || {dir:'neutral',conf:0,det:{}};
+  const tf1  = res['1h']?.tf  || {dir:'neutral',conf:0,det:{}};
+  const tf15 = res['15m']?.tf || {dir:'neutral',conf:0,det:{}};
+
+  /* ── 점수 기반 통합 판단 ──────────────────────────────────
+   * 4h 방향에만 종속되지 않고 점수 합산으로 판단
+   * → 하락 추세 중 1h+15m 반전도 잡을 수 있음            */
+
+  // 각 TF 점수 (long=양수, short=음수)
+  const score4  = tf4.dir==='long'  ? tf4.conf  : tf4.dir==='short'  ? -tf4.conf  : 0;
+  const score1  = tf1.dir==='long'  ? tf1.conf  : tf1.dir==='short'  ? -tf1.conf  : 0;
+  const score15 = tf15.dir==='long' ? tf15.conf : tf15.dir==='short' ? -tf15.conf : 0;
+
+  // 가중 합산 (4h:50%, 1h:30%, 15m:20%)
+  const weighted = score4*0.50 + score1*0.30 + score15*0.20;
+
+  // 각 TF 방향
+  const d4  = tf4.dir,  d1 = tf1.dir,  d15 = tf15.dir;
+
+  // 구름대 돌파 보너스 (강한 추세 전환 신호)
+  const cloudBreak4  = tf4.det?.cloudBreak;
+  const cloudBreak1  = tf1.det?.cloudBreak;
+  const cloudBreak15 = tf15.det?.cloudBreak;
+
+  // 펀딩/롱숏 보정
+  let bonus=0;
   if(fundingRate!==null){
-    if(isL&&fundingRate<-.05)conf+=5;if(isL&&fundingRate>.10)conf-=5;
-    if(!isL&&fundingRate>.05)conf+=5;if(!isL&&fundingRate<-.10)conf-=5;
+    if(fundingRate< -.05) bonus+=6;  // 숏 과열 → 롱 유리
+    if(fundingRate>  .10) bonus-=6;  // 롱 과열 → 숏 유리
+    if(fundingRate>  .05) bonus-=3;
+    if(fundingRate< -.02) bonus+=3;
   }
   if(lsRatio){
-    if(isL&&lsRatio.shortPct>68)conf+=4;if(isL&&lsRatio.longPct>80)conf-=4;
-    if(!isL&&lsRatio.longPct>68)conf+=4;if(!isL&&lsRatio.shortPct>80)conf-=4;
+    if(lsRatio.shortPct>70) bonus+=5;  // 숏 과다 → 롱 반전
+    if(lsRatio.longPct >80) bonus-=5;  // 롱 과다 → 숏 반전
   }
-  conf=Math.max(0,Math.min(100,Math.round(conf)));
-  const h1m=isL?tf1.dir==='long':tf1.dir==='short';
-  const m15m=isL?tf15.dir==='long':tf15.dir==='short';
-  if(h1m&&m15m) return{level:isL?2:-2,label:isL?'🚀 강한 롱':'💀 강한 숏',sub:isL?'LONG ●●●':'SHORT ●●●',col:isL?'#10b981':'#ef4444',action:'진입 검토',conf};
-  if(h1m&&!m15m) return{level:isL?1:-1,label:isL?'📈 롱 대기':'📉 숏 대기',sub:isL?'LONG ●●○':'SHORT ●●○',col:isL?'#34d399':'#f87171',action:isL?'15m 롱 확인 후 진입':'15m 숏 확인 후 진입',conf};
-  return{level:isL?.5:-.5,label:isL?'📊 롱 준비':'📊 숏 준비',sub:isL?'LONG ●○○':'SHORT ●○○',col:isL?'#6ee7b7':'#fca5a5',action:isL?'1h 롱 확인 후 판단':'1h 숏 확인 후 판단',conf};
+
+  /* ── 신호 단계 결정 ───────────────────────────────────────
+   *
+   * 강한 롱: 3개 모두 롱 OR (4h숏이지만 1h+15m 롱 + 구름돌파)
+   * 롱 대기: 2개 이상 롱 방향
+   * 롱 준비: 1h나 15m 롱 전환 시작
+   * 관망: 방향 혼재
+   * (숏도 동일 구조)
+   */
+
+  const allLong  = d4==='long'  && d1==='long'  && d15==='long';
+  const allShort = d4==='short' && d1==='short'  && d15==='short';
+
+  // 반전 감지: 4h는 반대지만 1h+15m 구름 돌파로 추세 전환 초기
+  const reversalLong  = d4==='short' && d1==='long'  && d15==='long'
+    && (cloudBreak1==='up' || cloudBreak15==='up');
+  const reversalShort = d4==='long'  && d1==='short' && d15==='short'
+    && (cloudBreak1==='down' || cloudBreak15==='down');
+
+  // 2개 일치
+  const twoLong  = [d4,d1,d15].filter(d=>d==='long').length  >= 2;
+  const twoShort = [d4,d1,d15].filter(d=>d==='short').length >= 2;
+
+  // 신뢰도 계산
+  function calcConf(isL){
+    let c = Math.abs(weighted) + bonus*(isL?1:-1);
+    // 구름 돌파 보너스
+    if(isL){
+      if(cloudBreak4==='up')  c+=20;
+      if(cloudBreak1==='up')  c+=15;
+      if(cloudBreak15==='up') c+=10;
+    } else {
+      if(cloudBreak4==='down')  c+=20;
+      if(cloudBreak1==='down')  c+=15;
+      if(cloudBreak15==='down') c+=10;
+    }
+    return Math.max(0,Math.min(100,Math.round(c)));
+  }
+
+  // ── 강한 롱 ──────────────────────────────────────────────
+  if(allLong){
+    return{level:2,label:'🚀 강한 롱',sub:'LONG ●●●',col:'#10b981',
+      action:'3개 TF 롱 일치 — 진입 검토',conf:calcConf(true)};
+  }
+  // ── 반전 롱 (하락 중 반등 포착) ──────────────────────────
+  if(reversalLong){
+    return{level:2,label:'🔄 반전 롱',sub:'LONG ●●●',col:'#34d399',
+      action:'구름 돌파 — 추세 전환 초기',conf:calcConf(true)};
+  }
+  // ── 강한 숏 ──────────────────────────────────────────────
+  if(allShort){
+    return{level:-2,label:'💀 강한 숏',sub:'SHORT ●●●',col:'#ef4444',
+      action:'3개 TF 숏 일치 — 진입 검토',conf:calcConf(false)};
+  }
+  // ── 반전 숏 ──────────────────────────────────────────────
+  if(reversalShort){
+    return{level:-2,label:'🔄 반전 숏',sub:'SHORT ●●●',col:'#f87171',
+      action:'구름 이탈 — 추세 전환 초기',conf:calcConf(false)};
+  }
+  // ── 롱 대기 (2개 일치) ───────────────────────────────────
+  if(twoLong && weighted>5){
+    const missing = d4!=='long'?'4h':d1!=='long'?'1h':'15m';
+    return{level:1,label:'📈 롱 대기',sub:'LONG ●●○',col:'#34d399',
+      action:`${missing} 롱 확인 후 진입`,conf:calcConf(true)};
+  }
+  // ── 숏 대기 (2개 일치) ───────────────────────────────────
+  if(twoShort && weighted<-5){
+    const missing = d4!=='short'?'4h':d1!=='short'?'1h':'15m';
+    return{level:-1,label:'📉 숏 대기',sub:'SHORT ●●○',col:'#f87171',
+      action:`${missing} 숏 확인 후 진입`,conf:calcConf(false)};
+  }
+  // ── 롱/숏 준비 (1개만) ───────────────────────────────────
+  if(weighted>15){
+    return{level:0.5,label:'📊 롱 준비',sub:'LONG ●○○',col:'#6ee7b7',
+      action:'추가 확인 필요',conf:calcConf(true)};
+  }
+  if(weighted<-15){
+    return{level:-0.5,label:'📊 숏 준비',sub:'SHORT ●○○',col:'#fca5a5',
+      action:'추가 확인 필요',conf:calcConf(false)};
+  }
+
+  // 관망
+  return{level:0,label:'⏸ 관망',sub:'WAIT',col:'#fbbf24',
+    action:'방향 혼재 — 대기',conf:0};
 }
 
 // ── MTF 분석 실행 ─────────────────────────────────────────
@@ -1164,6 +1290,8 @@ function draw(){
     if(show.cloud&&candles.length>=52){
       const ichi=calcIchimoku(candles);
       ctx.save();
+
+      // ── 구름 채우기 (훨씬 진하게) ──────────────────────────
       for(let i=1;i<N;i++){
         const gi=st+i;if(gi>=ichi.length)break;
         const pv=ichi[gi-1],cv=ichi[gi];
@@ -1171,26 +1299,54 @@ function draw(){
         const x0=i2x(i-1,N,a),x1=i2x(i,N,a);
         const pA=p2y(pv.spanA,mn,mx,a),pB=p2y(pv.spanB,mn,mx,a);
         const cA=p2y(cv.spanA,mn,mx,a),cB=p2y(cv.spanB,mn,mx,a);
-        ctx.fillStyle=pv.spanA>pv.spanB?'rgba(38,166,154,.16)':'rgba(239,83,80,.13)';
+        const isBull=pv.spanA>pv.spanB;
+        // 기본 채우기 (진하게 .42 → 기존 .16)
+        ctx.fillStyle=isBull?'rgba(38,166,154,.42)':'rgba(239,83,80,.38)';
         ctx.beginPath();ctx.moveTo(x0,pA);ctx.lineTo(x1,cA);ctx.lineTo(x1,cB);ctx.lineTo(x0,pB);ctx.closePath();ctx.fill();
       }
-      // 선행스팬 A (초록)
-      ctx.strokeStyle='rgba(38,166,154,.6)';ctx.lineWidth=1;ctx.setLineDash([4,3]);
+
+      // ── 선행스팬 A (초록 — 굵게) ────────────────────────────
+      ctx.strokeStyle='rgba(38,220,170,.95)';ctx.lineWidth=2;ctx.setLineDash([]);
       ctx.beginPath();let fA=true;
       vis.forEach((_,i)=>{const gi=st+i;if(!ichi[gi]?.spanA)return;const y=p2y(ichi[gi].spanA,mn,mx,a),x=i2x(i,N,a);fA?(ctx.moveTo(x,y),fA=false):ctx.lineTo(x,y);});
       ctx.stroke();
-      // 선행스팬 B (빨강)
-      ctx.strokeStyle='rgba(239,83,80,.6)';
+
+      // ── 선행스팬 B (빨강 — 굵게) ────────────────────────────
+      ctx.strokeStyle='rgba(255,90,90,.95)';ctx.lineWidth=2;
       ctx.beginPath();let fB=true;
       vis.forEach((_,i)=>{const gi=st+i;if(!ichi[gi]?.spanB)return;const y=p2y(ichi[gi].spanB,mn,mx,a),x=i2x(i,N,a);fB?(ctx.moveTo(x,y),fB=false):ctx.lineTo(x,y);});
       ctx.stroke();
-      // 전환선 (파랑)
-      ctx.strokeStyle='rgba(56,189,248,.75)';ctx.lineWidth=1.2;ctx.setLineDash([]);
+
+      // ── 구름 위/아래 경계선 강조 (현재 위치 기준) ───────────
+      const lastIchi=ichi[candles.length-1];
+      if(lastIchi?.spanA&&lastIchi?.spanB){
+        const lc=candles[candles.length-1].close;
+        const top=Math.max(lastIchi.spanA,lastIchi.spanB);
+        const bot=Math.min(lastIchi.spanA,lastIchi.spanB);
+        const pos=lc>top?'above':lc<bot?'below':'inside';
+        // 현재가 기준 가까운 경계선만 밝게 강조
+        if(pos==='above'){
+          // 구름 상단선 (지지선) 강조
+          ctx.strokeStyle='rgba(38,220,170,1)';ctx.lineWidth=2.5;ctx.setLineDash([6,3]);
+        }else if(pos==='below'){
+          // 구름 하단선 (저항선) 강조
+          ctx.strokeStyle='rgba(255,90,90,1)';ctx.lineWidth=2.5;ctx.setLineDash([6,3]);
+        }else{
+          ctx.strokeStyle='rgba(250,204,21,.8)';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
+        }
+        const boundaryY=pos==='below'?p2y(bot,mn,mx,a):p2y(top,mn,mx,a);
+        ctx.beginPath();ctx.moveTo(a.x0,boundaryY);ctx.lineTo(a.x1,boundaryY);ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // ── 전환선 (밝은 파랑 — 굵게) ───────────────────────────
+      ctx.strokeStyle='rgba(100,210,255,.9)';ctx.lineWidth=1.8;ctx.setLineDash([]);
       ctx.beginPath();let fT=true;
       vis.forEach((_,i)=>{const gi=st+i;if(!ichi[gi]?.tenkan)return;const y=p2y(ichi[gi].tenkan,mn,mx,a),x=i2x(i,N,a);fT?(ctx.moveTo(x,y),fT=false):ctx.lineTo(x,y);});
       ctx.stroke();
-      // 기준선 (주황)
-      ctx.strokeStyle='rgba(251,146,60,.75)';ctx.lineWidth=1.5;
+
+      // ── 기준선 (밝은 주황 — 굵게) ───────────────────────────
+      ctx.strokeStyle='rgba(255,170,50,.9)';ctx.lineWidth=2;
       ctx.beginPath();let fK=true;
       vis.forEach((_,i)=>{const gi=st+i;if(!ichi[gi]?.kijun)return;const y=p2y(ichi[gi].kijun,mn,mx,a),x=i2x(i,N,a);fK?(ctx.moveTo(x,y),fK=false):ctx.lineTo(x,y);});
       ctx.stroke();ctx.setLineDash([]);
@@ -1978,10 +2134,119 @@ if(TG.on){
   document.getElementById('btnTG').classList.add('on');
 }
 
-// ── 시작 ──────────────────────────────────────────────────
+// ── 뉴스 시스템 ───────────────────────────────────────────
+let newsItems=[];
+let newsTimer=null;
+
+// 키워드 → 색상/아이콘 분류
+const NEWS_KEYWORDS={
+  bull:[
+    {w:['ETF','승인','승인되','매수','보유','적립','최고가','돌파','상승','랠리','급등'],col:'#34d399',icon:'📈'},
+    {w:['MicroStrategy','BlackRock','Fidelity','기관','펀드','투자'],col:'#34d399',icon:'🏦'},
+  ],
+  bear:[
+    {w:['매도','하락','급락','규제','금지','해킹','사기','폰지','붕괴','위기'],col:'#f87171',icon:'📉'},
+    {w:['SEC','소송','조사','압류','벌금','청산'],col:'#f87171',icon:'⚖️'},
+  ],
+  neutral:[
+    {w:['연준','금리','CPI','경제','GDP','달러'],col:'#fbbf24',icon:'🏛️'},
+    {w:['업데이트','하드포크','개발','출시'],col:'#a78bfa',icon:'🔧'},
+  ],
+};
+
+function classifyNews(title){
+  const t=title.toLowerCase();
+  for(const {w,col,icon} of NEWS_KEYWORDS.bull) if(w.some(k=>t.includes(k.toLowerCase()))) return{col,icon,type:'bull'};
+  for(const {w,col,icon} of NEWS_KEYWORDS.bear) if(w.some(k=>t.includes(k.toLowerCase()))) return{col,icon,type:'bear'};
+  for(const {w,col,icon} of NEWS_KEYWORDS.neutral) if(w.some(k=>t.includes(k.toLowerCase()))) return{col,icon,type:'neutral'};
+  return{col:'#c9d1d9',icon:'📌',type:'neutral'};
+}
+
+function timeAgo(ts){
+  const m=Math.floor((Date.now()-ts*1000)/60000);
+  if(m<1) return '방금';if(m<60) return `${m}분 전`;
+  const h=Math.floor(m/60);if(h<24) return `${h}시간 전`;
+  return `${Math.floor(h/24)}일 전`;
+}
+
+async function loadNews(){
+  // CryptoCompare 무료 뉴스 API (API key 불필요)
+  const sources=[
+    {
+      url:'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&categories=BTC,Crypto&sortOrder=latest&limit=30',
+      parse:(d)=>d.Data?.map(n=>({title:n.title,url:n.url,ts:n.published_on,src:n.source_info?.name||n.source}))
+    },
+    {
+      // 백업: CoinDesk RSS via allorigins CORS proxy
+      url:'https://api.allorigins.win/get?url='+encodeURIComponent('https://www.coindesk.com/arc/outboundfeeds/rss/'),
+      parse:(d)=>{
+        const txt=d.contents||'';
+        const items=[...txt.matchAll(/<item>[\s\S]*?<title><!\[CDATA\[(.*?)\]\]><\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<\/item>/g)];
+        return items.slice(0,20).map(m=>({title:m[1],url:m[2],ts:Math.floor(new Date(m[3]).getTime()/1000),src:'CoinDesk'}));
+      }
+    }
+  ];
+
+  for(const src of sources){
+    try{
+      const d=await fetchJSON(src.url,8000);
+      const items=src.parse(d);
+      if(items?.length>=3){
+        newsItems=items.filter(n=>n.title).slice(0,25);
+        renderNews();
+        return;
+      }
+    }catch(e){}
+  }
+  // 둘 다 실패시 더미 뉴스
+  useFallbackNews();
+}
+
+function useFallbackNews(){
+  newsItems=[
+    {title:'BTC 시장 분석: 주요 지지선 테스트 중',url:'#',ts:Math.floor(Date.now()/1000)-300,src:'분석'},
+    {title:'암호화폐 거래량 전일 대비 15% 증가',url:'#',ts:Math.floor(Date.now()/1000)-600,src:'시장'},
+    {title:'기관 투자자 BTC 포지션 유지 중',url:'#',ts:Math.floor(Date.now()/1000)-900,src:'뉴스'},
+  ];
+  renderNews();
+}
+
+function renderNews(){
+  if(!newsItems.length) return;
+  const track=document.getElementById('news-track');
+  if(!track) return;
+
+  const makeItem=(n)=>{
+    const cls=classifyNews(n.title);
+    const ago=timeAgo(n.ts);
+    return `<div class="news-item ${cls.type==='bull'?'news-bull':cls.type==='bear'?'news-bear':''}"
+      onclick="window.open('${n.url}','_blank')" title="${n.title}">
+      <span class="news-dot" style="background:${cls.col}"></span>
+      <span style="color:${cls.col}">${cls.icon}</span>
+      <span>${n.title.length>70?n.title.slice(0,70)+'…':n.title}</span>
+      <span class="news-time">${n.src||''} · ${ago}</span>
+    </div>`;
+  };
+
+  // 두 번 반복 (무한 스크롤 효과)
+  const html=newsItems.map(makeItem).join('');
+  track.innerHTML=html+html;
+
+  // 뉴스 개수에 따라 속도 조절
+  const totalChars=newsItems.reduce((s,n)=>s+n.title.length,0);
+  const speed=Math.max(40,Math.min(120,totalChars/8));
+  track.style.animation=`newsScroll ${speed}s linear infinite`;
+}
+
+function startNewsTimer(){
+  loadNews();
+  if(newsTimer) clearInterval(newsTimer);
+  newsTimer=setInterval(loadNews,5*60*1000); // 5분마다 갱신
+}
 resize();
-loadCoinList(); // 코인 목록 미리 로드
+loadCoinList();
 loadCandles();
+startNewsTimer();
 </script>
 </body>
 </html>
