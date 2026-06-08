@@ -532,6 +532,38 @@
   }
   .coin-btn.active { background: rgba(0,212,255,0.15); border-color: #00d4ff; color: #00d4ff; }
 
+  /* COIN SEARCH */
+  .search-wrap {
+    display: flex; align-items: center; gap: 4px;
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 6px; padding: 3px 8px; max-width: 160px;
+  }
+  .search-wrap:focus-within { border-color: var(--accent); }
+  #searchInput {
+    background: none; border: none; outline: none;
+    color: var(--text); font-size: 12px; width: 90px;
+    font-family: var(--font); text-transform: uppercase;
+  }
+  #searchInput::placeholder { color: var(--text3); text-transform: none; font-size:11px; }
+  #searchBtn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; padding:0; }
+  #searchDropdown {
+    position: fixed; background: #161b22;
+    border: 1px solid var(--border); border-radius: 8px;
+    z-index: 500; min-width: 160px; max-height: 220px;
+    overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.6);
+    display: none;
+  }
+  #searchDropdown.show { display: block; }
+  .drop-item {
+    padding: 7px 12px; cursor: pointer; font-size: 12px;
+    border-bottom: 1px solid #1e2737;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .drop-item:last-child { border: none; }
+  .drop-item:hover { background: var(--bg3); }
+  .drop-coin { color: var(--text); font-weight: 700; }
+  .drop-price { color: var(--text3); font-size: 11px; }
+
   /* SCROLLBAR */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -562,11 +594,14 @@
       <span style="color:#00d4ff">◈</span> Hyperliquid
     </button>
   </div>
-  <!-- 코인 토글 (Hyperliquid일 때만 활성) -->
-  <div class="coin-toggle" id="coinToggle" style="display:none">
-    <button class="coin-btn active" id="coinBTC" onclick="switchCoin('BTC')">BTC</button>
-    <button class="coin-btn" id="coinHYPE" onclick="switchCoin('HYPE')">HYPE</button>
+  <!-- 코인 검색 (공통) -->
+  <div class="search-wrap">
+    <input id="searchInput" placeholder="코인 검색..." maxlength="12"
+      oninput="onSearchInput()" onkeydown="onSearchKey(event)"
+      autocomplete="off" autocorrect="off" spellcheck="false">
+    <button id="searchBtn" onclick="doSearch()">🔍</button>
   </div>
+  <div id="searchDropdown"></div>
   <div class="live-price" id="livePrice">--,---</div>
   <div class="price-change pos" id="priceChange">+0.00%</div>
   <div style="font-size:11px;color:var(--text3);margin-left:4px" id="lastUpdate">--:--:--</div>
@@ -704,7 +739,7 @@
     <!-- Chart -->
     <div class="chart-card">
       <div class="chart-header">
-        <div style="font-size:12px;font-weight:600;color:var(--text2)">BTCUSDT Perp</div>
+        <div style="font-size:12px;font-weight:600;color:var(--text2)" id="chartSymLabel">BTCUSDT Perp</div>
         <button class="tf-btn active" id="tfBtn15" onclick="setTF('15',this)">15분</button>
         <button class="tf-btn" id="tfBtn60" onclick="setTF('60',this)">1시간</button>
         <button class="tf-btn" id="tfBtn240" onclick="setTF('240',this)">4시간</button>
@@ -916,6 +951,163 @@ const WS_STREAMS_FOR = tf => [
 let _wsInst = null, _wsAlive = false, _wsRetry = 0;
 let _pricePollId = null;
 
+// 인기 코인 목록 (자동완성용)
+const POPULAR_COINS = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX',
+  'LINK','DOT','UNI','ATOM','LTC','APT','ARB','OP','INJ','SUI','WLD',
+  'PEPE','FLOKI','BONK','WIF','BOME','ORDI','RUNE','TIA','NEAR','HYPE'];
+
+let allCoins = []; // 거래소에서 불러온 전체 코인 목록
+let _searchTimer = null;
+
+// ── 코인 목록 로드 (working index.html 동일 방식) ──────────
+async function loadCoinList() {
+  if (state.exchange === 'binance') {
+    try {
+      // Binance Futures 선물 코인 전체
+      const d = await fetchJSON('https://fapi.binance.com/fapi/v1/exchangeInfo', 8000);
+      allCoins = d.symbols
+        .filter(s => s.contractType==='PERPETUAL' && s.quoteAsset==='USDT' && s.status==='TRADING')
+        .map(s => s.baseAsset)
+        .sort();
+      console.log('Binance 코인 목록:', allCoins.length);
+    } catch(e) {
+      // 실패시 API 없이도 Spot 코인 목록 시도
+      try {
+        const d = await fetchJSON('https://api.binance.com/api/v3/exchangeInfo', 8000);
+        allCoins = d.symbols
+          .filter(s => s.status==='TRADING' && s.quoteAsset==='USDT')
+          .map(s => s.baseAsset)
+          .filter((v,i,a) => a.indexOf(v)===i)
+          .sort();
+      } catch(e2) { allCoins = POPULAR_COINS; }
+    }
+  } else {
+    try {
+      // Hyperliquid 전체 코인 목록
+      const d = await fetchJSON('https://api.hyperliquid.xyz/info', 8000, 'POST', {type:'meta'});
+      allCoins = (d.universe || []).map(c => c.name).sort();
+    } catch(e) {
+      allCoins = ['BTC','ETH','SOL','HYPE','AVAX','DOGE','LINK','ARB','OP','INJ','SUI'];
+    }
+  }
+}
+
+// ── 코인 검색 드롭다운 ──────────────────────────────────────
+function onSearchInput() {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(showDropdown, 200);
+}
+
+function showDropdown() {
+  const inp = document.getElementById('searchInput');
+  const dd  = document.getElementById('searchDropdown');
+  const q   = inp.value.trim().toUpperCase();
+  if (!q) { dd.classList.remove('show'); return; }
+
+  const pool = allCoins.length ? allCoins : POPULAR_COINS;
+  const matches = pool
+    .filter(c => c.startsWith(q) || c.includes(q))
+    .slice(0, 10);
+
+  if (!matches.length) { dd.classList.remove('show'); return; }
+
+  dd.innerHTML = matches.map(c => `
+    <div class="drop-item" onclick="selectCoin('${c}')">
+      <span class="drop-coin">${c}</span>
+      <span class="drop-price" id="dp-${c}">--</span>
+    </div>`).join('');
+
+  // 위치: input 바로 아래
+  const rect = inp.getBoundingClientRect();
+  dd.style.left = rect.left + 'px';
+  dd.style.top  = (rect.bottom + 4) + 'px';
+  dd.style.width = Math.max(170, rect.width + 40) + 'px';
+  dd.classList.add('show');
+
+  // 가격 비동기 채우기 (상위 5개)
+  matches.slice(0, 5).forEach(async c => {
+    try {
+      let p = 0;
+      if (state.exchange === 'binance') {
+        const r = await fetchJSON(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${c}USDT`, 3000);
+        p = +r.price;
+        if (!p) {
+          const r2 = await fetchJSON(`https://api.binance.com/api/v3/ticker/price?symbol=${c}USDT`, 3000);
+          p = +r2.price;
+        }
+      } else {
+        const r = await fetchJSON('https://api.hyperliquid.xyz/info', 3000, 'POST', {type:'allMids'});
+        p = +(r[c] || 0);
+      }
+      const el2 = document.getElementById(`dp-${c}`);
+      if (el2 && p > 0) el2.textContent = '$' + p.toLocaleString('en-US', {maximumFractionDigits:2});
+    } catch(e) {}
+  });
+}
+
+function selectCoin(coin) {
+  document.getElementById('searchDropdown').classList.remove('show');
+  document.getElementById('searchInput').value = '';
+
+  // 거래소별 심볼 처리
+  if (state.exchange === 'binance') {
+    state.btcSymbol = coin + 'USDT';
+    state.coin = coin;
+  } else {
+    state.coin = coin;
+    state.btcSymbol = coin;
+  }
+
+  // 차트 심볼 결정
+  let tvSym;
+  if (state.exchange === 'hyperliquid') {
+    // Hyperliquid 코인은 TradingView에서 BINANCE 퍼프 or CRYPTOCAP 사용
+    tvSym = `BINANCE:${coin}USDTPERP`;
+  } else {
+    tvSym = `BINANCE:${coin}USDTPERP`;
+  }
+
+  // 차트 심볼 라벨 업데이트
+  const lbl = document.getElementById('chartSymLabel');
+  if (lbl) lbl.textContent = `${coin}USDT Perp`;
+
+  // TF 유지하면서 차트만 교체
+  const curTF = state.currentTF === '15m' ? '15' : state.currentTF === '1h' ? '60' : '240';
+  initChart(curTF, tvSym);
+
+  // 데이터 재로드
+  state.candles = { '15m': [], '1h': [], '4h': [] };
+  state.price = 0;
+
+  if (state.exchange === 'binance') {
+    if (_pricePollId) { clearInterval(_pricePollId); _pricePollId = null; }
+    if (_wsInst) { try { _wsInst.close(); } catch(e) {} }
+    state.btcSymbol = coin + 'USDT';
+    setTimeout(() => { startRestPolling(); connectPriceWS(); loadAllCandles(); }, 300);
+  } else {
+    if (_hlWs) { try { _hlWs.close(); } catch(e) {} }
+    setTimeout(() => { connectHLWebSocket(coin); loadAllCandlesHL(coin); }, 300);
+  }
+}
+
+function doSearch() {
+  const q = document.getElementById('searchInput').value.trim().toUpperCase();
+  if (q) selectCoin(q);
+}
+
+function onSearchKey(e) {
+  if (e.key === 'Enter') doSearch();
+  if (e.key === 'Escape') document.getElementById('searchDropdown').classList.remove('show');
+}
+
+// 드롭다운 외부 클릭 닫기
+document.addEventListener('click', e => {
+  if (!e.target.closest('#searchInput') && !e.target.closest('#searchDropdown')) {
+    const dd = document.getElementById('searchDropdown');
+    if (dd) dd.classList.remove('show');
+  }
+});
+
 // Upcoming events (demo data - replace with real API)
 const UPCOMING_EVENTS = [
   { name: 'CPI', risk: 90, label: 'high', time: getNextEventTime(2) },
@@ -1077,8 +1269,8 @@ function switchExchange(exchange) {
     state.btcSymbol = 'BTCUSDT';
     el('logoText').innerHTML = '₿ <span>BTC AI</span>';
     el('coinToggle').style.display = 'none';
-    // TradingView 차트 — Binance BTCUSDT
-    initChart('15', 'BINANCE:BTCUSDT');
+    initChart('15', 'BINANCE:BTCUSDTPERP');
+    loadCoinList();
     startRestPolling();
     connectPriceWS();
     loadAllCandles();
@@ -1098,15 +1290,14 @@ function switchCoin(coin) {
   state.candles = { '15m': [], '1h': [], '4h': [] };
   state.price = 0;
 
-  const symbol = coin === 'HYPE' ? 'CRYPTOCAP:HYPE' : 'BINANCE:BTCUSDT.P';
-  const tvSymbol = coin === 'HYPE' ? 'HYPERLIQUID:HYPEUSDT' : 'BINANCE:BTCUSDTPERP';
+  const tvSymbol = coin === 'HYPE' ? 'BINANCE:HYPEUSDTPERP' : 'BINANCE:BTCUSDTPERP';
 
   el('logoText').innerHTML = coin === 'HYPE'
     ? '<span style="color:#00d4ff">◈</span> <span>HYPE AI</span>'
     : '₿ <span>BTC AI</span>';
 
-  // TradingView: HYPE는 Hyperliquid 심볼, BTC는 Binance Perp
   initChart('15', tvSymbol);
+  loadCoinList();
   connectHLWebSocket(coin);
   loadAllCandlesHL(coin);
 }
@@ -1121,32 +1312,58 @@ async function loadAllCandlesHL(coin) {
 }
 
 // ============================================================
-// CHART — TradingView Widget (API 차단 무관)
+// CHART — TradingView Widget (구름대 + EMA + RSI 내장)
 // ============================================================
 let tvWidget = null;
+let currentTVSymbol = 'BINANCE:BTCUSDTPERP';
 
 function initChart(interval = '15', symbol = 'BINANCE:BTCUSDTPERP') {
-  document.getElementById('tradingview_chart').innerHTML = '';
+  currentTVSymbol = symbol;
+  const wrap = document.getElementById('tradingview_chart');
+  wrap.innerHTML = '';
+
+  // 심볼 라벨 업데이트
+  const lbl = document.getElementById('chartSymLabel');
+  if (lbl) {
+    const coin = state.coin || 'BTC';
+    const exch = state.exchange === 'hyperliquid' ? 'Hyperliquid' : 'Binance';
+    lbl.textContent = `${coin}USDT Perp · ${exch}`;
+  }
+
   tvWidget = new TradingView.widget({
     autosize: true,
     symbol: symbol,
     interval: interval,
     timezone: 'Asia/Seoul',
     theme: 'dark',
-    style: '1',
+    style: '1',           // 캔들
     locale: 'kr',
     enable_publishing: false,
     backgroundColor: 'rgba(17,24,39,1)',
     hide_top_toolbar: false,
     hide_legend: false,
+    hide_side_toolbar: false,
     save_image: false,
     container_id: 'tradingview_chart',
     studies: [
-      { id: 'MASimple@tv-basicstudies', inputs: { length: 20 } },
-      { id: 'MASimple@tv-basicstudies', inputs: { length: 60 } },
+      // ① 일목균형표 구름대 (핵심!)
       'IchimokuCloud@tv-basicstudies',
+      // ② EMA 20
+      { id: 'MAExp@tv-basicstudies', inputs: { length: 20 } },
+      // ③ EMA 60
+      { id: 'MAExp@tv-basicstudies', inputs: { length: 60 } },
+      // ④ RSI (별도 패널)
       'RSI@tv-basicstudies',
+      // ⑤ 거래량
+      'Volume@tv-basicstudies',
     ],
+    overrides: {
+      // 구름대 색상
+      'IchimokuCloud.Tenkan-sen.color': '#06b6d4',
+      'IchimokuCloud.Kijun-sen.color': '#8b5cf6',
+      'IchimokuCloud.Senkou Span A.color': 'rgba(16,185,129,0.4)',
+      'IchimokuCloud.Senkou Span B.color': 'rgba(239,68,68,0.4)',
+    },
   });
 }
 
@@ -1853,6 +2070,7 @@ function loadAllCandles() {
 
 async function init() {
   initChart('15', 'BINANCE:BTCUSDTPERP');  // TradingView 위젯 — Futures
+  loadCoinList();           // 코인 목록 비동기 로드 (검색용)
   startRestPolling();       // REST 폴링 먼저 시작 (WS 연결 전 백업)
   connectPriceWS();         // fstream WS 연결 시도 (성공시 폴링 대체)
 
