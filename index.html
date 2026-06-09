@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BTC Futures AI Assistant</title>
-<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
     --bg: #0a0e1a;
@@ -763,7 +763,7 @@
         <button class="tf-btn active" id="tfBtn15" onclick="setTF('15',this)">15분</button>
         <button class="tf-btn" id="tfBtn60" onclick="setTF('60',this)">1시간</button>
         <button class="tf-btn" id="tfBtn240" onclick="setTF('240',this)">4시간</button>
-        <div style="margin-left:auto;font-size:11px;color:var(--text3)" id="chartInfo">TradingView</div>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center"><span style="font-size:10px;color:var(--text3)" id="chartInfo">--</span><button onclick="toggleFib()" style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer" id="fibBtn">Fib ON</button></div>
       </div>
       <div id="tradingview_chart" style="flex:1;min-height:0;border-radius:6px;overflow:hidden;"></div>
     </div>
@@ -1093,7 +1093,7 @@ function selectCoin(coin) {
 
   // TF 유지하면서 차트만 교체
   const curTF = state.currentTF === '15m' ? '15' : state.currentTF === '1h' ? '60' : '240';
-  initChart(curTF, tvSym);
+  initChart(curTF);
 
   // 데이터 재로드
   state.candles = { '15m': [], '1h': [], '4h': [] };
@@ -1289,7 +1289,7 @@ function switchExchange(exchange) {
     state.btcSymbol = 'BTCUSDT';
     el('logoText').innerHTML = '₿ <span>BTC AI</span>';
     el('coinToggle').style.display = 'none';
-    initChart('15', 'BINANCE:BTCUSDTPERP');
+    initChart('15');
     loadCoinList();
     startRestPolling();
     connectPriceWS();
@@ -1328,66 +1328,201 @@ async function loadAllCandlesHL(coin) {
     const candles = await fetchHLCandles(coin, tf, 200);
     state.candles[tf] = candles;
     computeIndicators(tf, candles);
+    if (tf === state.currentTF) updateChartData(candles);
   }
 }
 
 // ============================================================
-// CHART — TradingView Widget (구름대 + EMA + RSI 내장)
+// CHART — Lightweight Charts (구름대 직접 렌더링)
 // ============================================================
-let tvWidget = null;
-let currentTVSymbol = 'BINANCE:BTCUSDTPERP';
+let chart = null;
+let seriesCandle, seriesEMA20, seriesEMA60;
+let seriesTenkan, seriesKijun, seriesSenkouA, seriesSenkouB;
+let fibLines = [];
+let showFib = true;
 
-function initChart(interval = '15', symbol = 'BINANCE:BTCUSDTPERP') {
-  currentTVSymbol = symbol;
+function initChart(interval = '15', symbol = null) {
   const wrap = document.getElementById('tradingview_chart');
   wrap.innerHTML = '';
 
-  // 심볼 라벨 업데이트
+  // 심볼 라벨
   const lbl = document.getElementById('chartSymLabel');
   if (lbl) {
     const coin = state.coin || 'BTC';
     const exch = state.exchange === 'hyperliquid' ? 'Hyperliquid' : 'Binance';
     lbl.textContent = `${coin}USDT Perp · ${exch}`;
   }
+  el('chartInfo').textContent = state.coin || 'BTC';
 
-  tvWidget = new TradingView.widget({
-    autosize: true,
-    symbol: symbol,
-    interval: interval,
-    timezone: 'Asia/Seoul',
-    theme: 'dark',
-    style: '1',           // 캔들
-    locale: 'kr',
-    enable_publishing: false,
-    backgroundColor: 'rgba(17,24,39,1)',
-    hide_top_toolbar: false,
-    hide_legend: false,
-    hide_side_toolbar: false,
-    save_image: false,
-    container_id: 'tradingview_chart',
-    studies: [
-      // ① 일목균형표 구름대 (핵심!)
-      'IchimokuCloud@tv-basicstudies',
-      // ② EMA 20
-      { id: 'MAExp@tv-basicstudies', inputs: { length: 20 } },
-      // ③ EMA 60
-      { id: 'MAExp@tv-basicstudies', inputs: { length: 60 } },
-      // ④ RSI (별도 패널)
-      'RSI@tv-basicstudies',
-      // ⑤ 거래량
-      'Volume@tv-basicstudies',
-    ],
-    overrides: {
-      // 구름대 색상
-      'IchimokuCloud.Tenkan-sen.color': '#06b6d4',
-      'IchimokuCloud.Kijun-sen.color': '#8b5cf6',
-      'IchimokuCloud.Senkou Span A.color': 'rgba(16,185,129,0.4)',
-      'IchimokuCloud.Senkou Span B.color': 'rgba(239,68,68,0.4)',
-    },
+  const h = wrap.clientHeight || 400;
+  const w = wrap.clientWidth || 600;
+
+  chart = LightweightCharts.createChart(wrap, {
+    width: w, height: h,
+    layout: { background: { color: '#0a0e1a' }, textColor: '#94a3b8' },
+    grid: { vertLines: { color: '#1a2640' }, horzLines: { color: '#1a2640' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#1e2d45', scaleMargins: { top: 0.08, bottom: 0.08 } },
+    timeScale: { borderColor: '#1e2d45', timeVisible: true, secondsVisible: false, rightOffset: 8 },
+    handleScroll: true, handleScale: true,
   });
+
+  // 캔들
+  seriesCandle = chart.addCandlestickSeries({
+    upColor: '#26a69a', downColor: '#ef5350',
+    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+    wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+  });
+
+  // 선행스팬 A (녹색 라인 — 구름대 위쪽)
+  seriesSenkouA = chart.addLineSeries({
+    color: 'rgba(38,166,154,0.7)', lineWidth: 1,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+  });
+  // 선행스팬 B (적색 라인 — 구름대 아래쪽)
+  seriesSenkouB = chart.addLineSeries({
+    color: 'rgba(239,83,80,0.7)', lineWidth: 1,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+  });
+  // 전환선 (Tenkan) — 하늘색
+  seriesTenkan = chart.addLineSeries({
+    color: '#06b6d4', lineWidth: 1,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+  });
+  // 기준선 (Kijun) — 보라색
+  seriesKijun = chart.addLineSeries({
+    color: '#8b5cf6', lineWidth: 1.5,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+  });
+  // EMA 20 — 파란색
+  seriesEMA20 = chart.addLineSeries({
+    color: '#3b82f6', lineWidth: 1.5,
+    priceLineVisible: false, lastValueVisible: true,
+    title: 'EMA20',
+  });
+  // EMA 60 — 주황색
+  seriesEMA60 = chart.addLineSeries({
+    color: '#f59e0b', lineWidth: 1.5,
+    priceLineVisible: false, lastValueVisible: true,
+    title: 'EMA60',
+  });
+
+  // 리사이즈
+  const ro = new ResizeObserver(() => {
+    if (chart && wrap.clientWidth > 0 && wrap.clientHeight > 0) {
+      chart.applyOptions({ width: wrap.clientWidth, height: wrap.clientHeight });
+    }
+  });
+  ro.observe(wrap);
 }
 
-function updateChartData() { /* TradingView 위젯은 자체 데이터 사용 */ }
+function toggleFib() {
+  showFib = !showFib;
+  el('fibBtn').textContent = showFib ? 'Fib ON' : 'Fib OFF';
+  el('fibBtn').style.color = showFib ? 'var(--green)' : 'var(--text3)';
+  if (state.candles[state.currentTF]) updateChartData(state.candles[state.currentTF]);
+}
+
+function updateChartData(candles) {
+  if (!chart || !seriesCandle || !candles || candles.length < 60) return;
+  const sorted = [...candles].sort((a, b) => a.time - b.time);
+
+  // 캔들 데이터
+  seriesCandle.setData(sorted);
+
+  // EMA
+  const closes = sorted.map(c => c.close);
+  const e20 = computeEMAArray(closes, 20);
+  const e60 = computeEMAArray(closes, 60);
+  seriesEMA20.setData(sorted.map((c,i) => e20[i] ? {time: c.time, value: e20[i]} : null).filter(Boolean));
+  seriesEMA60.setData(sorted.map((c,i) => e60[i] ? {time: c.time, value: e60[i]} : null).filter(Boolean));
+
+  // 일목균형표 전체 계산
+  const ichi = computeIchimokuFull(sorted);
+  seriesTenkan.setData(ichi.tenkan);
+  seriesKijun.setData(ichi.kijun);
+  seriesSenkouA.setData(ichi.senkouA);
+  seriesSenkouB.setData(ichi.senkouB);
+
+  // 피보나치 자동 계산 & 표시
+  clearFibLines();
+  if (showFib) drawFibonacci(sorted);
+}
+
+// ── 일목균형표 전체 배열 계산 ─────────────────────────────
+function computeIchimokuFull(candles) {
+  const highs = candles.map(c => c.high);
+  const lows  = candles.map(c => c.low);
+  const maxSlice = (arr, s, e) => Math.max(...arr.slice(s, e));
+  const minSlice = (arr, s, e) => Math.min(...arr.slice(s, e));
+
+  const tenkan = [], kijun = [], senkouA = [], senkouB = [];
+
+  for (let i = 0; i < candles.length; i++) {
+    const t = candles[i].time;
+    // 전환선(9)
+    if (i >= 8)  tenkan.push({ time: t, value: (maxSlice(highs,i-8,i+1) + minSlice(lows,i-8,i+1)) / 2 });
+    // 기준선(26)
+    if (i >= 25) kijun.push({ time: t, value: (maxSlice(highs,i-25,i+1) + minSlice(lows,i-25,i+1)) / 2 });
+  }
+
+  // 선행스팬 A: (전환+기준)/2, 26봉 앞에 표시
+  for (let i = 25; i < candles.length; i++) {
+    const tk = tenkan.find(x => x.time === candles[i].time);
+    const kj = kijun.find(x => x.time === candles[i].time);
+    if (tk && kj) {
+      const fut = i + 26;
+      if (fut < candles.length) senkouA.push({ time: candles[fut].time, value: (tk.value + kj.value) / 2 });
+    }
+  }
+  // 선행스팬 B: 52봉 고저평균, 26봉 앞
+  for (let i = 51; i < candles.length; i++) {
+    const fut = i + 26;
+    if (fut < candles.length) {
+      senkouB.push({ time: candles[fut].time, value: (maxSlice(highs,i-51,i+1) + minSlice(lows,i-51,i+1)) / 2 });
+    }
+  }
+
+  return { tenkan, kijun, senkouA, senkouB };
+}
+
+// ── 피보나치 자동 계산 ────────────────────────────────────
+function clearFibLines() {
+  fibLines.forEach(l => { try { seriesCandle.removePriceLine(l); } catch(e) {} });
+  fibLines = [];
+}
+
+function drawFibonacci(candles) {
+  // 최근 120봉에서 스윙고/저 탐지
+  const recent = candles.slice(-120);
+  const high = Math.max(...recent.map(c => c.high));
+  const low  = Math.min(...recent.map(c => c.low));
+  const range = high - low;
+  if (range <= 0) return;
+
+  const levels = [
+    { r: 0,     label: '0%',    color: '#ef4444' },
+    { r: 0.236, label: '23.6%', color: '#f97316' },
+    { r: 0.382, label: '38.2%', color: '#f59e0b' },
+    { r: 0.5,   label: '50%',   color: '#10b981' },
+    { r: 0.618, label: '61.8%', color: '#3b82f6' },
+    { r: 0.786, label: '78.6%', color: '#8b5cf6' },
+    { r: 1,     label: '100%',  color: '#94a3b8' },
+  ];
+
+  levels.forEach(({ r, label, color }) => {
+    const price = high - range * r;
+    const line = seriesCandle.createPriceLine({
+      price,
+      color,
+      lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: `Fib ${label}`,
+    });
+    fibLines.push(line);
+  });
+}
 
 // ============================================================
 // BINANCE API
@@ -1476,17 +1611,11 @@ async function loadCandles(tf) {
   const candles = await fetchKlines(state.btcSymbol, tf, 200);
   state.candles[tf] = candles;
   computeIndicators(tf, candles);
+  // 현재 TF면 차트 업데이트
+  if (tf === state.currentTF) updateChartData(candles);
 }
 
-function updateChartData(candles) {
-  const sorted = [...candles].sort((a, b) => a.time - b.time);
-  candleSeries.setData(sorted);
-  const closes = sorted.map(c => c.close);
-  const e20 = computeEMAArray(closes, 20);
-  const e60 = computeEMAArray(closes, 60);
-  ema20Series.setData(sorted.map((c, i) => ({ time: c.time, value: e20[i] })).filter(d => d.value));
-  ema60Series.setData(sorted.map((c, i) => ({ time: c.time, value: e60[i] })).filter(d => d.value));
-}
+// (updateChartData is defined in chart section above)
 
 // ============================================================
 // INDICATORS
@@ -1913,21 +2042,15 @@ function setTF(tf, btn) {
   document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 
-  // 현재 거래소에 맞는 차트 심볼 선택
-  let symbol;
-  if (state.exchange === 'hyperliquid') {
-    symbol = state.coin === 'HYPE' ? 'HYPERLIQUID:HYPEUSDT' : 'BINANCE:BTCUSDTPERP';
-  } else {
-    symbol = 'BINANCE:BTCUSDTPERP';
-  }
-  initChart(tf, symbol);
+  // 타임프레임 전환 시 차트 재초기화
+  initChart(tf);
 
-  // 지표 계산용 캔들 로드
   const apiTf = state.currentTF;
   if (state.exchange === 'hyperliquid') {
     fetchHLCandles(state.coin, apiTf, 200).then(candles => {
       state.candles[apiTf] = candles;
       computeIndicators(apiTf, candles);
+      updateChartData(candles);
     });
   } else {
     loadCandles(apiTf);
@@ -2133,7 +2256,7 @@ async function init() {
   el('livePrice').textContent = '로딩...';
   el('connLabel').textContent = '연결 중...';
 
-  initChart('15', 'BINANCE:BTCUSDTPERP');  // TradingView 위젯 — Futures
+  initChart('15');  // Lightweight Charts 초기화
   loadCoinList();           // 코인 목록 비동기 로드 (검색용)
   startRestPolling();       // REST 즉시 가격 가져오기
   connectPriceWS();         // fstream WS 연결 시도 (성공시 폴링 대체)
