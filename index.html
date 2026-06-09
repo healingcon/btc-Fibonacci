@@ -80,14 +80,16 @@
   .layout {
     display: grid;
     grid-template-columns: 260px 1fr 280px;
-    grid-template-rows: auto;
+    grid-template-rows: 1fr;
     gap: 8px;
     padding: 8px;
-    min-height: calc(100vh - 52px);
+    height: calc(100vh - 52px);  /* 헤더 뺀 전체 높이 */
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
   /* LEFT PANEL */
-  .left-panel { display: flex; flex-direction: column; gap: 8px; }
+  .left-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; overflow-y: auto; overflow-x: hidden; }
 
   /* AI SCORE CARD */
   .ai-score-card {
@@ -102,7 +104,7 @@
     text-transform: uppercase;
     letter-spacing: 1px;
     color: var(--text3);
-    margin-bottom: 10px;
+    margin-bottom: 6px;
   }
   .score-circle {
     width: 90px;
@@ -184,13 +186,17 @@
   .neutral { color: var(--amber); }
 
   /* CENTER - CHART */
-  .center-panel { display: flex; flex-direction: column; gap: 8px; }
+  .center-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; overflow: hidden; }
   .chart-card {
     background: var(--bg2);
     border: 1px solid var(--border);
     border-radius: var(--card-radius);
     padding: 12px;
     flex: 1;
+    min-height: 0;          /* flex 자식이 줄어들 수 있게 */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
   .chart-header {
     display: flex;
@@ -222,6 +228,7 @@
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 8px;
+    flex-shrink: 0;
   }
   .mtf-box {
     background: var(--bg2);
@@ -335,7 +342,7 @@
   .result-val { font-size: 18px; font-weight: 700; color: var(--accent); }
 
   /* RIGHT PANEL */
-  .right-panel { display: flex; flex-direction: column; gap: 8px; }
+  .right-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; overflow-y: auto; overflow-x: hidden; }
 
   /* NEWS FILTER */
   .news-status {
@@ -575,8 +582,21 @@
     .right-panel { display: none; }
   }
   @media (max-width: 768px) {
-    .layout { grid-template-columns: 1fr; }
+    .layout {
+      grid-template-columns: 1fr;
+      height: auto;           /* 모바일: 높이 자동 */
+      overflow: visible;
+    }
     .left-panel { display: none; }
+    .center-panel { height: auto; overflow: visible; }
+    .chart-card { height: 520px; flex: none; }  /* 모바일 차트 크게 고정 */
+    #tradingview_chart { flex: none !important; height: 100% !important; }
+    /* 모바일 헤더 압축 */
+    .header { flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 8px; }
+    .live-price { font-size: 16px; }
+    .exchange-toggle .ex-btn { font-size: 11px; padding: 4px 8px; }
+    .search-wrap { max-width: 130px; }
+    #searchInput { width: 70px; }
   }
 </style>
 </head>
@@ -745,7 +765,7 @@
         <button class="tf-btn" id="tfBtn240" onclick="setTF('240',this)">4시간</button>
         <div style="margin-left:auto;font-size:11px;color:var(--text3)" id="chartInfo">TradingView</div>
       </div>
-      <div id="tradingview_chart" style="height:340px;border-radius:6px;overflow:hidden;"></div>
+      <div id="tradingview_chart" style="flex:1;min-height:0;border-radius:6px;overflow:hidden;"></div>
     </div>
 
     <!-- MTF Signals -->
