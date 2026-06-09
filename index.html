@@ -1393,11 +1393,13 @@ function updateChartData() { /* TradingView 위젯은 자체 데이터 사용 */
 // BINANCE API
 // ============================================================
 // REST 캔들 로드: fapi → api.binance 순서
-async function fetchJSON(url, timeout = 10000) {
+async function fetchJSON(url, timeout = 10000, method = 'GET', body = null) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeout);
   try {
-    const r = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+    const opts = { signal: ctrl.signal, cache: 'no-store', method };
+    if (body) { opts.headers = {'Content-Type':'application/json'}; opts.body = JSON.stringify(body); }
+    const r = await fetch(url, opts);
     clearTimeout(t);
     if (!r.ok) throw new Error(r.status);
     return await r.json();
@@ -1862,24 +1864,45 @@ function scheduleWSRetry() {
   setTimeout(connectPriceWS, delay);
 }
 
-// REST 폴링 — WS 백업용 (5초마다 가격)
+// REST 폴링 — api.binance.com 1순위 (한국에서 fapi HTTP 차단)
+// 24hr 티커로 가격 + 변동률 한 번에 가져옴
 function startRestPolling() {
   if (_pricePollId) return;
-  _pricePollId = setInterval(async () => {
-    if (_wsAlive) return; // WS 살아있으면 skip
-    try {
-      const d = await fetchJSON(`${FAPI}/ticker/price?symbol=BTCUSDT`, 5000);
-      const p = +d.price;
-      if (p > 0) { state.prevPrice = state.price || p; state.price = p; updatePriceUI(p, 0); }
-    } catch(e) {
-      // fapi REST 막힘 → Spot 시도
+
+  const _fetch = async () => {
+    if (_wsAlive) return; // WS 연결되면 WS가 담당
+    const sym = (state.btcSymbol || 'BTCUSDT').replace('/', '');
+    // ★ Spot 1순위 — 한국에서 fapi(선물 HTTP)는 차단됨
+    const urls = [
+      `https://api.binance.com/api/v3/ticker/24hr?symbol=${sym}`,
+      `https://api1.binance.com/api/v3/ticker/24hr?symbol=${sym}`,
+      `https://api2.binance.com/api/v3/ticker/24hr?symbol=${sym}`,
+      `https://api3.binance.com/api/v3/ticker/24hr?symbol=${sym}`,
+      `https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${sym}`,
+    ];
+    for (const url of urls) {
       try {
-        const d = await fetchJSON('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', 5000);
-        const p = +d.price;
-        if (p > 0) { state.prevPrice = state.price || p; state.price = p; updatePriceUI(p, 0); }
-      } catch(e2) {}
+        const d = await fetchJSON(url, 3000); // 3초 타임아웃
+        const p = +(d.lastPrice || d.price || 0);
+        const pct = +(d.priceChangePercent || 0);
+        if (p > 0) {
+          state.prevPrice = state.price || p;
+          state.price = p;
+          updatePriceUI(p, pct); // 변동률 포함
+          const isFapi = url.includes('fapi');
+          el('connLabel').textContent = isFapi ? 'Futures REST ✓' : 'Spot REST ✓';
+          el('connDot').style.background = 'var(--green)';
+          el('connMode').textContent = isFapi ? '' : '(spot)';
+          return;
+        }
+      } catch(e) { /* 다음 시도 */ }
     }
-  }, 5000);
+    el('connLabel').textContent = '연결 재시도 중...';
+    el('connDot').style.background = 'var(--amber)';
+  };
+
+  _fetch();                              // 즉시 첫 호출
+  _pricePollId = setInterval(_fetch, 3000); // 3초마다
 }
 
 // ============================================================
@@ -2079,6 +2102,23 @@ function el(id) { return document.getElementById(id); }
 function fmt(n) { if (!n) return '--'; return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 function fmtVol(n) { if (!n) return '--'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n.toFixed(1); }
 
+// 헤더 가격 업데이트
+function updatePriceUI(price, changePct) {
+  if (!price || price <= 0) return;
+
+  const priceEl = el('livePrice');
+  priceEl.textContent = price.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  priceEl.style.color = price >= (state.prevPrice || price) ? 'var(--green)' : 'var(--red)';
+
+  const changeEl = el('priceChange');
+  const pct = typeof changePct === 'number' ? changePct : 0;
+  changeEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+  changeEl.className = 'price-change ' + (pct >= 0 ? 'pos' : 'neg');
+
+  const now = new Date();
+  el('lastUpdate').textContent = now.toLocaleTimeString('ko-KR');
+}
+
 // ============================================================
 // INIT
 // ============================================================
@@ -2089,9 +2129,13 @@ function loadAllCandles() {
 }
 
 async function init() {
+  // 헤더 가격 로딩 표시
+  el('livePrice').textContent = '로딩...';
+  el('connLabel').textContent = '연결 중...';
+
   initChart('15', 'BINANCE:BTCUSDTPERP');  // TradingView 위젯 — Futures
   loadCoinList();           // 코인 목록 비동기 로드 (검색용)
-  startRestPolling();       // REST 폴링 먼저 시작 (WS 연결 전 백업)
+  startRestPolling();       // REST 즉시 가격 가져오기
   connectPriceWS();         // fstream WS 연결 시도 (성공시 폴링 대체)
 
   // 지표 계산용 캔들 로드 (api.binance.com)
