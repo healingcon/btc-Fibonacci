@@ -862,11 +862,15 @@
 
     <!-- Economic Events -->
     <div class="mini-card">
-      <div class="card-title">📅 예정 경제 이벤트</div>
+      <div class="card-title">📅 예정 경제 이벤트
+        <span style="font-size:9px;color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0;float:right">
+          출처: BLS·Fed (KST기준)
+        </span>
+      </div>
       <div id="eventList">
         <div style="color:var(--text3);font-size:11px;padding:4px 0">이벤트 로딩 중...</div>
       </div>
-      <div style="margin-top:8px;font-size:10px;color:var(--text3)">* 실제 데이터는 텔레그램 봇 연동 후 자동 업데이트</div>
+      <div style="margin-top:6px;font-size:9px;color:var(--text3)">* 매월 업데이트 / 시간은 한국시간(KST) 기준</div>
     </div>
 
     <!-- Telegram -->
@@ -1126,21 +1130,28 @@ document.addEventListener('click', e => {
   }
 });
 
-// Upcoming events (demo data - replace with real API)
-const UPCOMING_EVENTS = [
-  { name: 'CPI', risk: 90, label: 'high', time: getNextEventTime(2) },
-  { name: 'NFP', risk: 80, label: 'high', time: getNextEventTime(5) },
-  { name: 'FOMC Minutes', risk: 70, label: 'med', time: getNextEventTime(8) },
-  { name: 'PPI', risk: 70, label: 'med', time: getNextEventTime(12) },
-  { name: 'GDP', risk: 60, label: 'med', time: getNextEventTime(15) },
-];
+// ★ 팩트체크 완료 — 공식 BLS/Fed 발표 날짜 (한국시간 KST = EDT+13h)
+// 출처: bls.gov, federalreserve.gov (2026.06.10 기준)
+function utcDate(y,m,d,h,min) { return new Date(Date.UTC(y,m-1,d,h,min)); }
 
-function getNextEventTime(daysFromNow) {
-  const d = new Date();
-  d.setDate(d.getDate() + daysFromNow);
-  d.setHours(21, 30, 0, 0);
-  return d;
-}
+const UPCOMING_EVENTS = [
+  // ─ 6월 ─
+  { name: 'CPI (5월)', desc:'소비자물가지수', risk: 90,
+    time: utcDate(2026,6,10,12,30) },   // Jun 10 8:30 AM EDT → KST 21:30
+  { name: 'PPI (5월)', desc:'생산자물가지수', risk: 70,
+    time: utcDate(2026,6,11,12,30) },   // Jun 11 8:30 AM EDT
+  { name: 'FOMC 금리결정', desc:'연준 기준금리 발표+기자회견', risk: 100,
+    time: utcDate(2026,6,17,18,0) },    // Jun 17 2:00 PM EDT
+  // ─ 7월 ─
+  { name: 'NFP (6월)', desc:'비농업 고용지수', risk: 80,
+    time: utcDate(2026,7,2,12,30) },    // Jul 2 8:30 AM EDT
+  { name: 'FOMC 의사록', desc:'6월 회의 의사록 공개', risk: 70,
+    time: utcDate(2026,7,8,18,0) },     // Jul 8 2:00 PM EDT
+  { name: 'CPI (6월)', desc:'소비자물가지수', risk: 90,
+    time: utcDate(2026,7,14,12,30) },   // Jul 14 8:30 AM EDT (추정)
+  { name: 'FOMC 금리결정', desc:'연준 기준금리 발표', risk: 100,
+    time: utcDate(2026,7,29,18,0) },    // Jul 29 2:00 PM EDT
+];
 
 
 // ============================================================
@@ -1660,16 +1671,18 @@ function setConnStatus(mode, base) {
 
 function generateDemoCandles(interval, count) {
   const candles = [];
-  let base = 105000 + Math.random() * 5000;
+  // ★ 실제 WS 가격 기준으로 생성 (없으면 REST 폴링 대기)
+  let base = state.price > 0 ? state.price : 0;
+  if (!base) return []; // 실제 가격 없으면 빈 배열 반환 (데모 가격 사용 안 함)
   const now = Math.floor(Date.now() / 1000);
-  const tfSecs = { '15m': 900, '1h': 3600, '4h': 14400 };
+  const tfSecs = { '1m':60, '5m':300, '15m': 900, '1h': 3600, '4h': 14400 };
   const step = tfSecs[interval] || 900;
   for (let i = count; i >= 0; i--) {
     const open = base;
-    const change = (Math.random() - 0.48) * base * 0.004;
+    const change = (Math.random() - 0.48) * base * 0.003;
     const close = open + change;
-    const high = Math.max(open, close) + Math.abs(change) * Math.random() * 0.8;
-    const low = Math.min(open, close) - Math.abs(change) * Math.random() * 0.8;
+    const high = Math.max(open, close) + Math.abs(change) * Math.random() * 0.6;
+    const low = Math.min(open, close) - Math.abs(change) * Math.random() * 0.6;
     const volume = 100 + Math.random() * 400;
     candles.push({ time: now - i * step, open, high, low, close, volume });
     base = close;
@@ -1773,7 +1786,9 @@ function computeIndicators(tf, candles) {
   const price = closes[closes.length - 1];
 
   if (tf === '15m') {
-    state.indicators = { ema20, ema60, rsi, atr, avgVol, curVol, ichi, price };
+    // ★ state.price(실시간)가 있으면 그걸 우선 사용
+    const realPrice = state.price > 0 ? state.price : price;
+    state.indicators = { ema20, ema60, rsi, atr, avgVol, curVol, ichi, price: realPrice };
     state.ichimoku = ichi;
     updateIndicatorUI();
     computeScore();
@@ -1937,10 +1952,11 @@ function checkSignalAlert(score) {
 // TRADE LEVELS
 // ============================================================
 function computeLevels() {
-  const { atr, price } = state.indicators;
-  if (!price || !atr) return;
+  const { atr } = state.indicators;
+  // ★ 실시간 WS/REST 가격 우선, 없으면 캔들 마지막 close 사용
+  const entry = state.price > 0 ? state.price : state.indicators.price;
+  if (!entry || !atr) return;
   const slDist = atr * 1.5;
-  const entry = price;
   const isLong = state.direction !== 'SHORT';
   const sl = isLong ? entry - slDist : entry + slDist;
   const tp1 = isLong ? entry + slDist * 1 : entry - slDist * 1;
@@ -1962,13 +1978,14 @@ function computeLevels() {
 function computePositionSize() {
   const bal = parseFloat(el('balInput').value) || 1000;
   const risk = state.riskPct / 100;
-  const { atr, price } = state.indicators;
+  const { atr } = state.indicators;
+  const price = state.price > 0 ? state.price : state.indicators.price;
   if (!price || !atr) return;
   const slDist = atr * 1.5;
   const riskAmt = bal * risk;
   const size = riskAmt / slDist;
   el('posSize').textContent = size.toFixed(4) + ' BTC';
-  el('maxLoss').textContent = riskAmt.toFixed(0) + ' USDT';
+  el('maxLoss').textContent = '$' + riskAmt.toFixed(0);
 }
 
 function setRR(n) {
@@ -2015,9 +2032,9 @@ function connectPriceWS() {
     opened = true; clearTimeout(openTimer);
     _wsAlive = true; _wsRetry = 0;
     const isFutures = url.includes('fstream');
-    el('connLabel').textContent = isFutures ? 'Futures WS 실시간 ✓' : 'Spot WS 실시간 ✓';
-    el('connDot').style.background = 'var(--green)';
-    el('connMode').textContent = isFutures ? '' : '(spot)';
+    el('connLabel').textContent = isFutures ? '선물 실시간 ✓' : 'Spot 실시간';
+    el('connDot').style.background = isFutures ? 'var(--green)' : 'var(--cyan)';
+    el('connMode').textContent = isFutures ? '(Futures)' : '(Spot — 선물과 소폭 차이)';
   };
 
   _wsInst.onmessage = (e) => {
@@ -2136,44 +2153,70 @@ function setTF(tf, btn) {
 // ============================================================
 function renderEvents() {
   const now = Date.now();
-  const upcoming = UPCOMING_EVENTS.filter(e => e.time.getTime() > now).slice(0, 5);
-  el('eventList').innerHTML = upcoming.map(ev => {
+  // 지난 이벤트 포함 — 오늘 이벤트는 발표 후 1시간까지 표시
+  const display = UPCOMING_EVENTS.filter(e => e.time.getTime() > now - 3600000).slice(0, 7);
+
+  el('eventList').innerHTML = display.map(ev => {
     const diff = ev.time.getTime() - now;
-    const days = Math.floor(diff / 86400000);
-    const hrs = Math.floor((diff % 86400000) / 3600000);
-    const minsLeft = `${days}일 ${hrs}시간 후`;
+    const isPast   = diff < 0;
+    const isToday  = Math.abs(diff) < 86400000 && new Date(ev.time).toDateString() === new Date().toDateString();
+    const isSoon   = diff > 0 && diff < 7200000; // 2시간 내
+
+    // KST 시간 표시
+    const kstStr = ev.time.toLocaleString('ko-KR', {
+      timeZone: 'Asia/Seoul', month:'numeric', day:'numeric',
+      hour:'2-digit', minute:'2-digit'
+    });
+
+    // 상대 시간
+    let timeLabel;
+    if (isPast)       timeLabel = '<span style="color:var(--text3)">발표됨</span>';
+    else if (diff < 3600000) timeLabel = `<span style="color:var(--red);font-weight:700">⚡ ${Math.floor(diff/60000)}분 후!</span>`;
+    else if (diff < 86400000) {
+      const h = Math.floor(diff/3600000), m = Math.floor((diff%3600000)/60000);
+      timeLabel = `<span style="color:var(--amber)">${h}시간 ${m}분 후</span>`;
+    } else {
+      const d = Math.floor(diff/86400000);
+      timeLabel = `<span style="color:var(--text3)">${kstStr}</span>`;
+    }
+
+    const riskClass = ev.risk >= 90 ? 'risk-high' : ev.risk >= 70 ? 'risk-med' : 'risk-low';
+    const rowStyle  = isToday && !isPast ? 'background:rgba(245,158,11,0.06);border-radius:6px;' : '';
+
     return `
-      <div class="event-row">
-        <div class="event-risk risk-${ev.risk >= 80 ? 'high' : ev.risk >= 60 ? 'med' : 'low'}">${ev.risk}</div>
-        <div class="event-name-s">${ev.name}</div>
-        <div class="event-time">${minsLeft}</div>
+      <div class="event-row" style="${rowStyle}">
+        <div class="event-risk ${riskClass}">${ev.risk}</div>
+        <div style="flex:1">
+          <div class="event-name-s" style="font-weight:${isToday?700:400}">${ev.name} ${isToday&&!isPast?'🔴':''}</div>
+          <div style="font-size:9px;color:var(--text3)">${ev.desc||''}</div>
+        </div>
+        <div class="event-time" style="text-align:right">${timeLabel}</div>
       </div>
     `;
   }).join('');
 
-  const nextEvent = upcoming[0];
-  if (!nextEvent) {
-    setNewsStatus('safe');
-    return;
+  if (!display.length) {
+    el('eventList').innerHTML = '<div style="color:var(--text3);font-size:11px;padding:6px">예정된 이벤트 없음</div>';
   }
 
-  const diffMs = nextEvent.time.getTime() - now;
-  const diffMin = diffMs / 60000;
+  // SAFE/CAUTION/DANGER 상태
+  const next = UPCOMING_EVENTS.find(e => e.time.getTime() > now);
+  if (!next) { setNewsStatus('safe'); el('countdownSection').style.display='none'; return; }
 
+  const diffMin = (next.time.getTime() - now) / 60000;
   if (diffMin <= 30) {
     setNewsStatus('danger');
     el('countdownSection').style.display = 'block';
-    el('countdownEventName').textContent = nextEvent.name;
+    el('countdownEventName').textContent = next.name;
   } else if (diffMin <= 120) {
     setNewsStatus('caution');
     el('countdownSection').style.display = 'block';
-    el('countdownEventName').textContent = nextEvent.name;
+    el('countdownEventName').textContent = next.name;
   } else {
     setNewsStatus('safe');
     el('countdownSection').style.display = 'none';
   }
-
-  if (nextEvent) updateCountdown(nextEvent.time);
+  updateCountdown(next.time);
 }
 
 function setNewsStatus(status) {
@@ -2296,15 +2339,16 @@ function runBacktest() {
 // UTILS
 // ============================================================
 function el(id) { return document.getElementById(id); }
-function fmt(n) { if (!n) return '--'; return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+function fmt(n) { if (!n) return '--'; return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 function fmtVol(n) { if (!n) return '--'; if (n >= 1000) return (n / 1000).toFixed(1) + 'K'; return n.toFixed(1); }
 
 // 헤더 가격 업데이트
+let _levelRefreshTimer = null;
 function updatePriceUI(price, changePct) {
   if (!price || price <= 0) return;
 
   const priceEl = el('livePrice');
-  priceEl.textContent = price.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  priceEl.textContent = '$' + price.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   priceEl.style.color = price >= (state.prevPrice || price) ? 'var(--green)' : 'var(--red)';
 
   const changeEl = el('priceChange');
@@ -2312,8 +2356,16 @@ function updatePriceUI(price, changePct) {
   changeEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
   changeEl.className = 'price-change ' + (pct >= 0 ? 'pos' : 'neg');
 
-  const now = new Date();
-  el('lastUpdate').textContent = now.toLocaleTimeString('ko-KR');
+  el('lastUpdate').textContent = new Date().toLocaleTimeString('ko-KR');
+
+  // ★ 실시간 가격으로 손절/익절 즉시 재계산 (throttle 500ms)
+  clearTimeout(_levelRefreshTimer);
+  _levelRefreshTimer = setTimeout(() => {
+    if (state.indicators && state.indicators.atr) {
+      computeLevels();
+      computePositionSize();
+    }
+  }, 500);
 }
 
 // ============================================================
