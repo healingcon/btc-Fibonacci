@@ -605,16 +605,7 @@
 <!-- HEADER -->
 <div class="header">
   <div class="logo" id="logoText">₿ <span>BTC AI</span></div>
-  <!-- 거래소 토글 -->
-  <div class="exchange-toggle">
-    <button class="ex-btn active" id="btnBinance" onclick="switchExchange('binance')">
-      <span style="color:#f0b90b">◆</span> Binance
-    </button>
-    <button class="ex-btn" id="btnHL" onclick="switchExchange('hyperliquid')">
-      <span style="color:#00d4ff">◈</span> Hyperliquid
-    </button>
-  </div>
-  <!-- 코인 검색 (공통) -->
+  <!-- 코인 검색 -->
   <div class="search-wrap">
     <input id="searchInput" placeholder="코인 검색..." maxlength="12"
       oninput="onSearchInput()" onkeydown="onSearchKey(event)"
@@ -760,6 +751,8 @@
     <div class="chart-card">
       <div class="chart-header">
         <div style="font-size:12px;font-weight:600;color:var(--text2)" id="chartSymLabel">BTCUSDT Perp</div>
+        <button class="tf-btn" id="tfBtn1" onclick="setTF('1',this)">1분</button>
+        <button class="tf-btn" id="tfBtn5" onclick="setTF('5',this)">5분</button>
         <button class="tf-btn active" id="tfBtn15" onclick="setTF('15',this)">15분</button>
         <button class="tf-btn" id="tfBtn60" onclick="setTF('60',this)">1시간</button>
         <button class="tf-btn" id="tfBtn240" onclick="setTF('240',this)">4시간</button>
@@ -892,7 +885,12 @@
 
     <!-- Backtest -->
     <div class="backtest-card">
-      <div class="card-title">📈 백테스트 (시뮬레이션)</div>
+      <div class="card-title">📈 백테스트 <span style="font-size:9px;color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(과거 데이터로 전략 승률 시뮬레이션)</span></div>
+      <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:10px;color:var(--text2);line-height:1.6">
+        💡 <b>백테스트란?</b> 지금 AI 전략을 과거 30일에 적용했다면<br>
+        승률/손익이 어땠을지 계산하는 <b>모의 시뮬레이션</b>입니다.<br>
+        CPI·FOMC·NFP 발표일은 제외하고 계산할 수 있어요.
+      </div>
       <div class="bt-filter-row">
         <label class="bt-check"><input type="checkbox" id="exCpi" checked> CPI 제외</label>
         <label class="bt-check"><input type="checkbox" id="exFomc" checked> FOMC 제외</label>
@@ -934,7 +932,7 @@
 const state = {
   price: 0,
   prevPrice: 0,
-  candles: { '15m': [], '1h': [], '4h': [] },
+  candles: { '1m': [], '5m': [], '15m': [], '1h': [], '4h': [] },
   currentTF: '15m',
   rr: 2,
   riskPct: 1,
@@ -1273,8 +1271,7 @@ function switchExchange(exchange) {
   state.exchange = exchange;
 
   // 버튼 UI
-  el('btnBinance').classList.toggle('active', exchange === 'binance');
-  el('btnHL').classList.toggle('active', exchange === 'hyperliquid');
+  // exchange toggle removed
   el('coinToggle').style.display = exchange === 'hyperliquid' ? 'flex' : 'none';
 
   // 기존 연결 종료
@@ -1302,8 +1299,7 @@ function switchExchange(exchange) {
 
 function switchCoin(coin) {
   state.coin = coin;
-  el('coinBTC').classList.toggle('active', coin === 'BTC');
-  el('coinHYPE').classList.toggle('active', coin === 'HYPE');
+  // coin toggle removed
 
   // 기존 WS 종료
   if (_hlWs) { try { _hlWs.close(); } catch(e) {} }
@@ -1341,21 +1337,24 @@ let seriesTenkan, seriesKijun, seriesSenkouA, seriesSenkouB;
 let fibLines = [];
 let showFib = true;
 
+// 구름대 Canvas 전역 변수
+let cloudCanvas = null, cloudCtx = null;
+let _cloudAData = [], _cloudBData = [];
+let _roChart = null;
+
 function initChart(interval = '15', symbol = null) {
   const wrap = document.getElementById('tradingview_chart');
   wrap.innerHTML = '';
+  wrap.style.position = 'relative';
+  cloudCanvas = null; _cloudAData = []; _cloudBData = [];
 
   // 심볼 라벨
   const lbl = document.getElementById('chartSymLabel');
-  if (lbl) {
-    const coin = state.coin || 'BTC';
-    const exch = state.exchange === 'hyperliquid' ? 'Hyperliquid' : 'Binance';
-    lbl.textContent = `${coin}USDT Perp · ${exch}`;
-  }
+  if (lbl) lbl.textContent = `${state.coin || 'BTC'}USDT Perp`;
   el('chartInfo').textContent = state.coin || 'BTC';
 
-  const h = wrap.clientHeight || 400;
-  const w = wrap.clientWidth || 600;
+  const h = wrap.clientHeight || 420;
+  const w = wrap.clientWidth  || 600;
 
   chart = LightweightCharts.createChart(wrap, {
     width: w, height: h,
@@ -1363,57 +1362,122 @@ function initChart(interval = '15', symbol = null) {
     grid: { vertLines: { color: '#1a2640' }, horzLines: { color: '#1a2640' } },
     crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     rightPriceScale: { borderColor: '#1e2d45', scaleMargins: { top: 0.08, bottom: 0.08 } },
-    timeScale: { borderColor: '#1e2d45', timeVisible: true, secondsVisible: false, rightOffset: 8 },
+    timeScale: { borderColor: '#1e2d45', timeVisible: true, secondsVisible: false, rightOffset: 10 },
     handleScroll: true, handleScale: true,
   });
 
+  // ── 시리즈 정의 ──────────────────────────────────────
   // 캔들
   seriesCandle = chart.addCandlestickSeries({
     upColor: '#26a69a', downColor: '#ef5350',
     borderUpColor: '#26a69a', borderDownColor: '#ef5350',
     wickUpColor: '#26a69a', wickDownColor: '#ef5350',
   });
-
-  // 선행스팬 A (녹색 라인 — 구름대 위쪽)
+  // 선행스팬 경계선 (가는 선만 — 구름은 Canvas로 채움)
   seriesSenkouA = chart.addLineSeries({
-    color: 'rgba(38,166,154,0.7)', lineWidth: 1,
+    color: 'rgba(38,166,154,0.9)', lineWidth: 1,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
   });
-  // 선행스팬 B (적색 라인 — 구름대 아래쪽)
   seriesSenkouB = chart.addLineSeries({
-    color: 'rgba(239,83,80,0.7)', lineWidth: 1,
+    color: 'rgba(239,83,80,0.9)', lineWidth: 1,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
   });
-  // 전환선 (Tenkan) — 하늘색
+  // 전환선 (하늘색)
   seriesTenkan = chart.addLineSeries({
     color: '#06b6d4', lineWidth: 1,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
   });
-  // 기준선 (Kijun) — 보라색
+  // 기준선 (보라)
   seriesKijun = chart.addLineSeries({
-    color: '#8b5cf6', lineWidth: 1.5,
+    color: '#8b5cf6', lineWidth: 2,
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
   });
-  // EMA 20 — 파란색
+  // EMA20 (파랑)
   seriesEMA20 = chart.addLineSeries({
-    color: '#3b82f6', lineWidth: 1.5,
-    priceLineVisible: false, lastValueVisible: true,
-    title: 'EMA20',
+    color: '#3b82f6', lineWidth: 2,
+    priceLineVisible: false, lastValueVisible: true, title: 'EMA20',
   });
-  // EMA 60 — 주황색
+  // EMA60 (주황)
   seriesEMA60 = chart.addLineSeries({
-    color: '#f59e0b', lineWidth: 1.5,
-    priceLineVisible: false, lastValueVisible: true,
-    title: 'EMA60',
+    color: '#f59e0b', lineWidth: 2,
+    priceLineVisible: false, lastValueVisible: true, title: 'EMA60',
   });
 
+  // ── Canvas 오버레이 생성 (구름대 채우기용) ─────────────
+  cloudCanvas = document.createElement('canvas');
+  cloudCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:2;';
+  cloudCanvas.width  = w;
+  cloudCanvas.height = h;
+  wrap.appendChild(cloudCanvas);
+  cloudCtx = cloudCanvas.getContext('2d');
+
+  // 스크롤/줌 할 때마다 구름 다시 그림
+  chart.timeScale().subscribeVisibleTimeRangeChange(redrawCloud);
+  chart.timeScale().subscribeVisibleLogicalRangeChange(redrawCloud);
+
   // 리사이즈
-  const ro = new ResizeObserver(() => {
-    if (chart && wrap.clientWidth > 0 && wrap.clientHeight > 0) {
-      chart.applyOptions({ width: wrap.clientWidth, height: wrap.clientHeight });
-    }
+  if (_roChart) _roChart.disconnect();
+  _roChart = new ResizeObserver(() => {
+    if (!chart || !wrap.clientWidth) return;
+    const nw = wrap.clientWidth, nh = wrap.clientHeight;
+    chart.applyOptions({ width: nw, height: nh });
+    if (cloudCanvas) { cloudCanvas.width = nw; cloudCanvas.height = nh; redrawCloud(); }
   });
-  ro.observe(wrap);
+  _roChart.observe(wrap);
+}
+
+// ── 구름대 Canvas 채우기 ──────────────────────────────────
+function redrawCloud() {
+  if (!cloudCtx || !cloudCanvas || !seriesSenkouA || !_cloudAData.length) return;
+  const w = cloudCanvas.width, h = cloudCanvas.height;
+  cloudCtx.clearRect(0, 0, w, h);
+
+  const ts = chart.timeScale();
+
+  // 시간→픽셀 변환 유틸
+  const toCoord = (series, price) => {
+    try { return series.priceToCoordinate(price); } catch(e) { return null; }
+  };
+
+  // A, B 데이터를 시간 기준으로 병합
+  const aMap = new Map(_cloudAData.map(d => [d.time, d.value]));
+  const bMap = new Map(_cloudBData.map(d => [d.time, d.value]));
+  const times = [...new Set([..._cloudAData.map(d => d.time)])].sort((a,b)=>a-b);
+
+  const pts = [];
+  for (const t of times) {
+    const aVal = aMap.get(t), bVal = bMap.get(t);
+    if (aVal == null || bVal == null) continue;
+    const x  = ts.timeToCoordinate(t);
+    const yA = toCoord(seriesSenkouA, aVal);
+    const yB = toCoord(seriesSenkouB, bVal);
+    if (x == null || yA == null || yB == null) continue;
+    pts.push({ x, yA, yB, bull: aVal >= bVal });
+  }
+
+  if (pts.length < 2) return;
+
+  // 연속 구간별로 채우기 (색 전환점에서 분리)
+  let i = 0;
+  while (i < pts.length - 1) {
+    const bull = pts[i].bull;
+    let j = i + 1;
+    while (j < pts.length && pts[j].bull === bull) j++;
+
+    // 색 전환점에서 교차점 보간
+    const seg = pts.slice(i, j);
+
+    cloudCtx.beginPath();
+    cloudCtx.moveTo(seg[0].x, seg[0].yA);
+    seg.forEach(p => cloudCtx.lineTo(p.x, p.yA));
+    for (let k = seg.length - 1; k >= 0; k--) cloudCtx.lineTo(seg[k].x, seg[k].yB);
+    cloudCtx.closePath();
+    cloudCtx.fillStyle = bull
+      ? 'rgba(38,166,154,0.22)'   // 상승 구름: 초록
+      : 'rgba(239,83,80,0.22)';   // 하락 구름: 빨강
+    cloudCtx.fill();
+    i = j;
+  }
 }
 
 function toggleFib() {
@@ -1443,6 +1507,12 @@ function updateChartData(candles) {
   seriesKijun.setData(ichi.kijun);
   seriesSenkouA.setData(ichi.senkouA);
   seriesSenkouB.setData(ichi.senkouB);
+
+  // ── Canvas 구름대 채우기 ──
+  _cloudAData = ichi.senkouA;
+  _cloudBData = ichi.senkouB;
+  // 차트 렌더 완료 후 구름 그리기 (짧은 딜레이)
+  setTimeout(redrawCloud, 80);
 
   // 피보나치 자동 계산 & 표시
   clearFibLines();
@@ -2037,23 +2107,27 @@ function startRestPolling() {
 // ============================================================
 // TF SWITCH — TradingView 위젯 재생성
 // ============================================================
+// TF 문자열 변환
+function tfToKey(tf) {
+  return tf==='1'?'1m': tf==='5'?'5m': tf==='15'?'15m': tf==='60'?'1h': '4h';
+}
+
 function setTF(tf, btn) {
-  state.currentTF = tf === '15' ? '15m' : tf === '60' ? '1h' : '4h';
+  const key = tfToKey(tf);
+  state.currentTF = key;
+  // 캔들 캐시에 1m·5m 공간 확보
+  if (!state.candles[key]) state.candles[key] = [];
   document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-
-  // 타임프레임 전환 시 차트 재초기화
   initChart(tf);
-
-  const apiTf = state.currentTF;
   if (state.exchange === 'hyperliquid') {
-    fetchHLCandles(state.coin, apiTf, 200).then(candles => {
-      state.candles[apiTf] = candles;
-      computeIndicators(apiTf, candles);
+    fetchHLCandles(state.coin, key, 300).then(candles => {
+      state.candles[key] = candles;
+      computeIndicators(key, candles);
       updateChartData(candles);
     });
   } else {
-    loadCandles(apiTf);
+    loadCandles(key);
   }
 }
 
