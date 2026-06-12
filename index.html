@@ -571,6 +571,69 @@
   .drop-coin { color: var(--text); font-weight: 700; }
   .drop-price { color: var(--text3); font-size: 11px; }
 
+  /* VIRTUAL TRADING */
+  .vt-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--card-radius); padding:12px 14px; }
+  .vt-balance { font-size:20px; font-weight:800; color:var(--accent); font-variant-numeric:tabular-nums; }
+  .vt-bal-label { font-size:10px; color:var(--text3); margin-bottom:2px; }
+  .vt-btn-row { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:8px 0; }
+  .vt-long  { padding:10px; border-radius:8px; border:none; background:rgba(16,185,129,0.2);
+              color:var(--green); font-size:13px; font-weight:700; cursor:pointer; font-family:var(--font);
+              transition:all 0.15s; border:1px solid rgba(16,185,129,0.3); }
+  .vt-long:hover  { background:rgba(16,185,129,0.35); }
+  .vt-long:disabled  { opacity:0.35; cursor:not-allowed; }
+  .vt-short { padding:10px; border-radius:8px; border:none; background:rgba(239,68,68,0.2);
+              color:var(--red); font-size:13px; font-weight:700; cursor:pointer; font-family:var(--font);
+              transition:all 0.15s; border:1px solid rgba(239,68,68,0.3); }
+  .vt-short:hover { background:rgba(239,68,68,0.35); }
+  .vt-short:disabled { opacity:0.35; cursor:not-allowed; }
+  .vt-close { width:100%; padding:8px; border-radius:8px; border:none;
+              background:rgba(100,116,139,0.2); color:var(--text2); font-size:12px; font-weight:700;
+              cursor:pointer; font-family:var(--font); border:1px solid var(--border);
+              transition:all 0.15s; display:none; }
+  .vt-close:hover { background:rgba(100,116,139,0.35); }
+  .vt-pos-box { background:var(--bg3); border-radius:8px; padding:10px 12px; margin:6px 0; display:none; }
+  .vt-pos-dir { font-size:13px; font-weight:800; margin-bottom:6px; }
+  .vt-pos-row { display:flex; justify-content:space-between; font-size:11px; padding:2px 0; }
+  .vt-pos-key { color:var(--text3); }
+  .vt-pos-val { font-weight:600; font-variant-numeric:tabular-nums; }
+  .vt-pnl-pos { color:var(--green); font-size:16px; font-weight:800; }
+  .vt-pnl-neg { color:var(--red);   font-size:16px; font-weight:800; }
+  .vt-history { max-height:130px; overflow-y:auto; }
+  .vt-hist-row { display:flex; justify-content:space-between; align-items:center;
+                 padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.03); font-size:10px; }
+  .vt-hist-row:last-child { border:none; }
+  .vt-reset { font-size:10px; color:var(--text3); background:none; border:none; cursor:pointer;
+              text-decoration:underline; padding:0; font-family:var(--font); float:right; }
+
+  /* VIRTUAL TRADING */
+  .vt-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--card-radius); padding:12px 14px; }
+  .vt-balance { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .vt-bal-num { font-size:18px; font-weight:800; color:var(--accent); font-variant-numeric:tabular-nums; }
+  .vt-btn-row { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px; }
+  .vt-long  { padding:9px; border-radius:8px; border:none; background:rgba(16,185,129,0.2); color:var(--green); font-size:13px; font-weight:700; cursor:pointer; font-family:var(--font); transition:all 0.15s; border:1px solid rgba(16,185,129,0.3); }
+  .vt-short { padding:9px; border-radius:8px; border:none; background:rgba(239,68,68,0.2);  color:var(--red);   font-size:13px; font-weight:700; cursor:pointer; font-family:var(--font); transition:all 0.15s; border:1px solid rgba(239,68,68,0.3); }
+  .vt-long:hover  { background:rgba(16,185,129,0.35); }
+  .vt-short:hover { background:rgba(239,68,68,0.35); }
+  .vt-long:disabled, .vt-short:disabled { opacity:0.4; cursor:not-allowed; }
+  .vt-pos { background:var(--bg3); border-radius:8px; padding:8px 10px; margin-bottom:6px; border-left:3px solid; }
+  .vt-pos.long-pos  { border-color:var(--green); }
+  .vt-pos.short-pos { border-color:var(--red); }
+  .vt-pos-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .vt-pos-type { font-size:11px; font-weight:700; }
+  .vt-pos-pnl  { font-size:13px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .vt-close-btn {
+    width:100%; padding:7px; border-radius:7px; margin-top:6px;
+    border:1px solid rgba(239,68,68,0.4); background:rgba(239,68,68,0.12);
+    color:#fca5a5; cursor:pointer; font-family:var(--font);
+    font-size:12px; font-weight:700; transition:all 0.15s;
+  }
+  .vt-close-btn:hover { background:rgba(239,68,68,0.3); border-color:var(--red); color:#fff; }
+  .vt-pos-detail { font-size:10px; color:var(--text3); display:flex; gap:10px; }
+  .vt-history { max-height:100px; overflow-y:auto; }
+  .vt-hist-row { display:flex; justify-content:space-between; font-size:10px; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); color:var(--text3); }
+  .flash { animation: flashAnim 0.4s ease; }
+  @keyframes flashAnim { 0%{opacity:0.3} 50%{opacity:1} 100%{opacity:1} }
+
   /* SCROLLBAR */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -670,6 +733,16 @@
           <div class="ind-val neutral" id="atrVal">--</div>
         </div>
       </div>
+      <!-- EMA99 강조 박스 -->
+      <div style="margin-top:8px;background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.4);border-radius:8px;padding:8px 10px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:10px;color:#a855f7;font-weight:700">📊 EMA99 (99일선)</div>
+          <div style="font-size:15px;font-weight:800;color:#c084fc;font-variant-numeric:tabular-nums" id="ema99">--</div>
+        </div>
+        <div style="text-align:right;font-size:10px;color:var(--text3);line-height:1.6">
+          <div id="ema99Status">--</div>
+        </div>
+      </div>
       <div style="margin-top:8px">
         <div class="ind-box" style="display:flex;justify-content:space-between;align-items:center">
           <div>
@@ -767,6 +840,41 @@
           높은 레버리지 = 증거금이 적어도 같은 포지션 진입 가능
         </div>
       </div>
+    </div>
+
+    <!-- 가상 매매 -->
+    <div class="vt-card">
+      <div class="card-title">🎮 가상 매매 (Paper Trading)</div>
+      <!-- 잔고 -->
+      <div class="vt-balance">
+        <div>
+          <div style="font-size:10px;color:var(--text3)">가상 잔고</div>
+          <div class="vt-bal-num" id="vtBalance">10,000 USDT</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:10px;color:var(--text3)">총 손익</div>
+          <div style="font-size:14px;font-weight:700" id="vtTotalPnl">$0</div>
+        </div>
+      </div>
+      <!-- 수량 입력 -->
+      <div class="calc-row" style="margin-bottom:8px">
+        <div class="calc-label">수량(BTC)</div>
+        <input class="calc-input" type="number" id="vtQty" value="0.01" step="0.001" min="0.001" placeholder="0.01">
+        <div style="font-size:10px;color:var(--text3);white-space:nowrap;padding-left:4px" id="vtQtyUsd">≈$--</div>
+      </div>
+      <!-- 롱/숏 버튼 -->
+      <div class="vt-btn-row">
+        <button class="vt-long"  onclick="vtOpen('LONG')" id="vtLongBtn">▲ 롱 매수</button>
+        <button class="vt-short" onclick="vtOpen('SHORT')" id="vtShortBtn">▼ 숏 매도</button>
+      </div>
+      <!-- 현재 포지션 -->
+      <div id="vtPositions" style="margin-bottom:6px"></div>
+      <!-- 거래 내역 -->
+      <div id="vtHistoryWrap" style="display:none">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:4px">── 거래 내역 ──</div>
+        <div class="vt-history" id="vtHistory"></div>
+      </div>
+      <button onclick="vtReset()" style="width:100%;padding:5px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text3);font-size:10px;cursor:pointer;font-family:var(--font);margin-top:6px">초기화 (10,000 USDT)</button>
     </div>
 
   </div>
@@ -1371,7 +1479,7 @@ async function loadAllCandlesHL(coin) {
 // CHART — Lightweight Charts (구름대 직접 렌더링)
 // ============================================================
 let chart = null;
-let seriesCandle, seriesEMA20, seriesEMA60;
+let seriesCandle, seriesEMA20, seriesEMA60, seriesEMA99;
 let seriesTenkan, seriesKijun, seriesSenkouA, seriesSenkouB;
 let fibLines = [];
 let showFib = true;
@@ -1440,6 +1548,17 @@ function initChart(interval = '15', symbol = null) {
   seriesEMA60 = chart.addLineSeries({
     color: '#f59e0b', lineWidth: 2,
     priceLineVisible: false, lastValueVisible: true, title: 'EMA60',
+  });
+  // EMA99 (보라 굵은선 — 돋보이게!)
+  seriesEMA99 = chart.addLineSeries({
+    color: '#a855f7',
+    lineWidth: 3,
+    lineStyle: 0,          // Solid
+    priceLineVisible: true,
+    priceLineColor: '#a855f7',
+    priceLineWidth: 1,
+    lastValueVisible: true,
+    title: 'EMA99',
   });
 
   // ── Canvas 오버레이 생성 (구름대 채우기용) ─────────────
@@ -1537,8 +1656,10 @@ function updateChartData(candles) {
   const closes = sorted.map(c => c.close);
   const e20 = computeEMAArray(closes, 20);
   const e60 = computeEMAArray(closes, 60);
+  const e99 = computeEMAArray(closes, 99);
   seriesEMA20.setData(sorted.map((c,i) => e20[i] ? {time: c.time, value: e20[i]} : null).filter(Boolean));
   seriesEMA60.setData(sorted.map((c,i) => e60[i] ? {time: c.time, value: e60[i]} : null).filter(Boolean));
+  if (seriesEMA99) seriesEMA99.setData(sorted.map((c,i) => e99[i] ? {time: c.time, value: e99[i]} : null).filter(Boolean));
 
   // 일목균형표 전체 계산
   const ichi = computeIchimokuFull(sorted);
@@ -1806,6 +1927,7 @@ function computeIndicators(tf, candles) {
   const vols = candles.map(c => c.volume);
   const ema20 = computeEMA(closes, 20);
   const ema60 = computeEMA(closes, 60);
+  const ema99 = computeEMA(closes, 99);
   const rsi = computeRSI(closes);
   const atr = computeATR(candles);
   const avgVol = vols.slice(-20).reduce((a, b) => a + b, 0) / 20;
@@ -1816,7 +1938,7 @@ function computeIndicators(tf, candles) {
   if (tf === '15m') {
     // ★ state.price(실시간)가 있으면 그걸 우선 사용
     const realPrice = state.price > 0 ? state.price : price;
-    state.indicators = { ema20, ema60, rsi, atr, avgVol, curVol, ichi, price: realPrice };
+    state.indicators = { ema20, ema60, ema99, rsi, atr, avgVol, curVol, ichi, price: realPrice };
     state.ichimoku = ichi;
     updateIndicatorUI();
     computeScore();
@@ -1848,6 +1970,19 @@ function updateIndicatorUI() {
   el('ema20').className = 'ind-val ' + (ema20 > ema60 ? 'up' : 'down');
   el('ema60').textContent = fmt(ema60);
   el('ema60').className = 'ind-val ' + (ema20 > ema60 ? 'down' : 'up');
+
+  // EMA99 업데이트
+  if (ema99 && el('ema99')) {
+    el('ema99').textContent = fmt(ema99);
+    const above99 = price > ema99;
+    const dist99  = ((price - ema99) / ema99 * 100).toFixed(2);
+    const statusEl = el('ema99Status');
+    if (above99) {
+      statusEl.innerHTML = `<span style="color:var(--green)">현재가 위 ▲</span><br>+${dist99}% 이격`;
+    } else {
+      statusEl.innerHTML = `<span style="color:var(--red)">현재가 아래 ▼</span><br>${dist99}% 이격`;
+    }
+  }
 
   const rsiEl = el('rsiVal');
   rsiEl.textContent = rsi.toFixed(1);
@@ -2380,6 +2515,185 @@ function runBacktest() {
 }
 
 // ============================================================
+// 가상 매매 (Paper Trading)
+// ============================================================
+const VT_INIT_BAL = 10000;
+let vtState = {
+  balance: VT_INIT_BAL,
+  positions: [],   // { id, side, qty, entry, lev, sl, tp, openTime }
+  history: [],
+  totalPnl: 0,
+};
+
+function vtOpen(side) {
+  const price = state.price;
+  if (!price || price <= 0) { alert('실시간 가격을 먼저 받아야 합니다'); return; }
+  const qty   = parseFloat(el('vtQty').value) || 0.01;
+  const lev   = state.leverage || 20;
+  const atr   = state.indicators?.atr || price * 0.002;
+  const slDist = atr * 1.5;
+  const sl    = side === 'LONG' ? price - slDist : price + slDist;
+  const tp    = side === 'LONG' ? price + slDist * state.rr : price - slDist * state.rr;
+  const cost  = (qty * price) / lev;   // 필요 증거금
+
+  if (cost > vtState.balance) {
+    alert(`증거금 부족! 필요: $${cost.toFixed(0)}, 잔고: $${vtState.balance.toFixed(0)}`);
+    return;
+  }
+
+  vtState.balance -= cost;
+  const pos = {
+    id: Date.now(),
+    side, qty, entry: price, lev, sl, tp, cost,
+    openTime: new Date().toLocaleTimeString('ko-KR'),
+    coin: state.coin || 'BTC',
+  };
+  vtState.positions.push(pos);
+  vtRenderAll();
+}
+
+function vtClose(id, reason = '수동청산') {
+  const price = state.price;
+  const idx = vtState.positions.findIndex(p => p.id === id);
+  if (idx < 0) return;
+  const pos = vtState.positions[idx];
+  const pnl = pos.side === 'LONG'
+    ? (price - pos.entry) * pos.qty
+    : (pos.entry - price) * pos.qty;
+  vtState.balance += pos.cost + pnl;
+  vtState.totalPnl += pnl;
+  vtState.positions.splice(idx, 1);
+  // 청산 알림 (잠깐 표시)
+  const sign = pnl >= 0 ? '+' : '';
+  const msg = `${reason} | ${sign}${pnl.toFixed(1)} USDT`;
+  showVtToast(msg, pnl >= 0);
+
+  vtState.history.unshift({
+    time: new Date().toLocaleTimeString('ko-KR'),
+    side: pos.side, qty: pos.qty,
+    entry: pos.entry, exit: price,
+    pnl, reason,
+  });
+  if (vtState.history.length > 20) vtState.history.pop();
+  vtRenderAll();
+}
+
+function vtCheckSLTP() {
+  if (!state.price || !vtState.positions.length) return;
+  const p = state.price;
+  vtState.positions.slice().forEach(pos => {
+    if (pos.side === 'LONG') {
+      if (p <= pos.sl) vtClose(pos.id, '🔴 손절');
+      else if (p >= pos.tp) vtClose(pos.id, '🟢 익절');
+    } else {
+      if (p >= pos.sl) vtClose(pos.id, '🔴 손절');
+      else if (p <= pos.tp) vtClose(pos.id, '🟢 익절');
+    }
+  });
+}
+
+function vtUnrealizedPnl(pos) {
+  const p = state.price || pos.entry;
+  return pos.side === 'LONG'
+    ? (p - pos.entry) * pos.qty
+    : (pos.entry - p) * pos.qty;
+}
+
+function vtRenderAll() {
+  const p = state.price || 0;
+
+  // 잔고
+  const balEl = el('vtBalance');
+  balEl.textContent = vtState.balance.toLocaleString('en-US', {maximumFractionDigits:0}) + ' USDT';
+  balEl.classList.add('flash'); setTimeout(() => balEl.classList.remove('flash'), 400);
+
+  // 총 손익 (실현 + 미실현)
+  const unrealized = vtState.positions.reduce((s, pos) => s + vtUnrealizedPnl(pos), 0);
+  const totalPnl = vtState.totalPnl + unrealized;
+  const pnlEl = el('vtTotalPnl');
+  pnlEl.textContent = (totalPnl >= 0 ? '+' : '-') + Math.abs(totalPnl).toFixed(1) + ' USDT';
+  pnlEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // 수량 USD 환산
+  const qty = parseFloat(el('vtQty').value) || 0.01;
+  el('vtQtyUsd').textContent = p > 0 ? `≈${(qty * p).toLocaleString('en-US',{maximumFractionDigits:0})} USDT` : '≈-- USDT';
+
+  // 포지션 목록
+  const posWrap = el('vtPositions');
+  if (!vtState.positions.length) {
+    posWrap.innerHTML = '<div style="font-size:11px;color:var(--text3);text-align:center;padding:6px">포지션 없음</div>';
+  } else {
+    posWrap.innerHTML = vtState.positions.map(pos => {
+      const pnl  = vtUnrealizedPnl(pos);
+      const pct  = pos.entry > 0 ? (pnl / pos.cost * 100) : 0;
+      const sign = pnl >= 0 ? '+' : '';
+      return `
+        <div class="vt-pos ${pos.side === 'LONG' ? 'long-pos' : 'short-pos'}">
+          <div class="vt-pos-header">
+            <span class="vt-pos-type" style="color:${pos.side==='LONG'?'var(--green)':'var(--red)'}">
+              ${pos.side==='LONG'?'▲ LONG':'▼ SHORT'} ${pos.qty} ${pos.coin}
+            </span>
+            <span class="vt-pos-pnl" style="color:${pnl>=0?'var(--green)':'var(--red)'}">
+              ${sign}${Math.abs(pnl).toFixed(1)} USDT (${sign}${pct.toFixed(1)}%)
+            </span>
+          </div>
+          <div class="vt-pos-detail">
+            <span>진입 ${pos.entry.toLocaleString()} USDT</span>
+            <span>손절 ${pos.sl.toFixed(0)}</span>
+            <span>익절 ${pos.tp.toFixed(0)}</span>
+            <span>${pos.lev}x</span>
+          </div>
+          <div style="font-size:9px;color:var(--text3);margin-top:3px">${pos.openTime} 진입</div>
+          <button class="vt-close-btn" onclick="vtClose(${pos.id})">
+            ✕ 포지션 청산 (현재가 ${p > 0 ? p.toLocaleString() : '--'} USDT)
+          </button>
+        </div>`;
+    }).join('');
+  }
+
+  // 거래 내역
+  const histWrap = el('vtHistoryWrap');
+  if (vtState.history.length) {
+    histWrap.style.display = 'block';
+    el('vtHistory').innerHTML = vtState.history.map(h => {
+      const sign = h.pnl >= 0 ? '+' : '';
+      return `<div class="vt-hist-row">
+        <span>${h.time} ${h.side} ${h.qty}BTC</span>
+        <span>${h.reason}</span>
+        <span style="color:${h.pnl>=0?'var(--green)':'var(--red)'}">${sign}${Math.abs(h.pnl).toFixed(1)} USDT</span>
+      </div>`;
+    }).join('');
+  }
+}
+
+function showVtToast(msg, isGood) {
+  let toast = document.getElementById('vtToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'vtToast';
+    toast.style.cssText = `
+      position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+      padding:10px 18px; border-radius:8px; font-size:13px; font-weight:700;
+      z-index:9999; pointer-events:none; transition:opacity 0.4s;
+      white-space:nowrap;
+    `;
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.background = isGood ? 'rgba(16,185,129,0.9)' : 'rgba(239,68,68,0.9)';
+  toast.style.color = '#fff';
+  toast.style.opacity = '1';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+}
+
+function vtReset() {
+  if (!confirm('가상 매매를 초기화할까요?')) return;
+  vtState = { balance: VT_INIT_BAL, positions: [], history: [], totalPnl: 0 };
+  vtRenderAll();
+}
+
+// ============================================================
 // UTILS
 // ============================================================
 function el(id) { return document.getElementById(id); }
@@ -2402,14 +2716,16 @@ function updatePriceUI(price, changePct) {
 
   el('lastUpdate').textContent = new Date().toLocaleTimeString('ko-KR');
 
-  // ★ 실시간 가격으로 손절/익절 즉시 재계산 (throttle 500ms)
+  // ★ 실시간 가격으로 전체 재계산 (throttle 300ms)
   clearTimeout(_levelRefreshTimer);
   _levelRefreshTimer = setTimeout(() => {
     if (state.indicators && state.indicators.atr) {
       computeLevels();
       computePositionSize();
     }
-  }, 500);
+    vtCheckSLTP();   // 가상매매 SL/TP 자동 체크
+    vtRenderAll();   // 미실현 손익 실시간 업데이트
+  }, 300);
 }
 
 // ============================================================
@@ -2453,6 +2769,7 @@ async function init() {
   }, 1000);
 
   setInterval(() => { computePositionSize(); }, 5000);
+  vtRenderAll();
 }
 
 init();
