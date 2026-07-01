@@ -634,6 +634,22 @@
   .flash { animation: flashAnim 0.4s ease; }
   @keyframes flashAnim { 0%{opacity:0.3} 50%{opacity:1} 100%{opacity:1} }
 
+  /* LIQUIDATION MAP */
+  .liq-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--card-radius); padding:12px 14px; }
+  .liq-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .liq-legend { display:flex; gap:10px; font-size:9px; }
+  .liq-legend span { display:flex; align-items:center; gap:3px; }
+  .liq-dot { width:7px; height:7px; border-radius:50%; }
+  #liqCanvas { width:100%; border-radius:6px; display:block; background:#0d1117; }
+  .liq-stats { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:8px; }
+  .liq-stat { background:var(--bg3); border-radius:6px; padding:6px 8px; }
+  .liq-stat-label { font-size:9px; color:var(--text3); margin-bottom:2px; }
+  .liq-stat-val { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .liq-feed { max-height:80px; overflow-y:auto; margin-top:6px; }
+  .liq-feed-row { display:flex; justify-content:space-between; font-size:10px; padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.03); }
+  .liq-long  { color:var(--red);   }   /* 롱 청산 = 매도 = 가격 하락압력 */
+  .liq-short { color:var(--green); }   /* 숏 청산 = 매수 = 가격 상승압력 */
+
   /* SCROLLBAR */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -962,6 +978,43 @@
 
   <!-- ========== RIGHT PANEL ========== -->
   <div class="right-panel">
+
+    <!-- 청산맵 -->
+    <div class="liq-card">
+      <div class="liq-header">
+        <div class="card-title" style="margin-bottom:0">⚡ 실시간 청산맵</div>
+        <div class="liq-legend">
+          <span><div class="liq-dot" style="background:var(--red)"></div>롱청산</span>
+          <span><div class="liq-dot" style="background:var(--green)"></div>숏청산</span>
+        </div>
+      </div>
+      <!-- 히트맵 캔버스 -->
+      <canvas id="liqCanvas" height="200" style="width:100%;border-radius:6px;background:#0d1117"></canvas>
+      <!-- 통계 -->
+      <div class="liq-stats">
+        <div class="liq-stat">
+          <div class="liq-stat-label">롱청산 (1시간)</div>
+          <div class="liq-stat-val liq-long" id="liqLongVol">-- USDT</div>
+        </div>
+        <div class="liq-stat">
+          <div class="liq-stat-label">숏청산 (1시간)</div>
+          <div class="liq-stat-val liq-short" id="liqShortVol">-- USDT</div>
+        </div>
+        <div class="liq-stat">
+          <div class="liq-stat-label">최대 롱청산가</div>
+          <div class="liq-stat-val liq-long" id="liqLongMax">--</div>
+        </div>
+        <div class="liq-stat">
+          <div class="liq-stat-label">최대 숏청산가</div>
+          <div class="liq-stat-val liq-short" id="liqShortMax">--</div>
+        </div>
+      </div>
+      <!-- 실시간 피드 -->
+      <div style="font-size:9px;color:var(--text3);margin:6px 0 3px">─ 실시간 청산 피드 ─</div>
+      <div class="liq-feed" id="liqFeed">
+        <div style="color:var(--text3);font-size:10px;padding:4px">연결 중...</div>
+      </div>
+    </div>
 
     <!-- News Status -->
     <div id="newsStatusCard" class="news-status safe-status">
@@ -2516,6 +2569,325 @@ function runBacktest() {
 }
 
 // ============================================================
+// 청산맵 (Liquidation Map)
+// Binance forceOrder WebSocket: wss://fstream.binance.com/ws/btcusdt@forceOrder
+// SELL = 롱 포지션 청산 (하락 압력)
+// BUY  = 숏 포지션 청산 (상승 압력)
+// ============================================================
+const LIQ_BUCKET    = 200;   // $200 단위로 가격 버킷
+const LIQ_MAX_AGE   = 3600000; // 1시간 데이터 유지
+const LIQ_MAX_FEED  = 30;    // 피드 최대 개수
+
+let liqWS    = null;
+let liqData  = [];   // { time, side, price, qty, usdVal }
+let liqBuckets = {}; // { price: { long: usdt, short: usdt } }
+
+// Binance forceOrder WS — 실시간 청산 전용 (시뮬레이션 없음)
+const LIQ_WS_URLS = [
+  'wss://fstream.binance.com/stream?streams=btcusdt@forceOrder',
+  'wss://fstream1.binance.com/stream?streams=btcusdt@forceOrder',
+  'wss://fstream.binance.com/ws/btcusdt@forceOrder',
+];
+let _liqWsIdx    = 0;
+let _liqConnected = false;
+let _liqFailed    = false;   // 모든 URL 실패 시 true
+
+function initLiqWS() {
+  if (liqWS) { try { liqWS.close(); } catch(e){} }
+  _liqConnected = false;
+
+  // 모든 URL 한 바퀴 돌면 → 연결 안됨 표시 후 3분 후 재시도
+  if (_liqWsIdx >= LIQ_WS_URLS.length) {
+    setLiqDisconnected();
+    setTimeout(() => { _liqWsIdx = 0; initLiqWS(); }, 180000);
+    return;
+  }
+
+  const url = LIQ_WS_URLS[_liqWsIdx];
+  setLiqConnecting(_liqWsIdx + 1, LIQ_WS_URLS.length);
+
+  const openTimer = setTimeout(() => {
+    if (!_liqConnected) {
+      try { liqWS.close(); } catch(e) {}
+      _liqWsIdx++;
+      initLiqWS();
+    }
+  }, 10000);
+
+  try { liqWS = new WebSocket(url); }
+  catch(e) { clearTimeout(openTimer); _liqWsIdx++; initLiqWS(); return; }
+
+  liqWS.onopen = () => {
+    clearTimeout(openTimer);
+    _liqConnected = true;
+    _liqFailed    = false;
+    _liqWsIdx     = 0;
+    setLiqConnected();
+  };
+
+  liqWS.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      const raw = msg.data || msg;
+      const o   = raw.o   || raw;
+      if (!o || (!o.p && !o.ap)) return;
+      const side   = o.S;
+      const price  = parseFloat(o.ap || o.p);
+      const qty    = parseFloat(o.q  || o.z || o.l);
+      const usdVal = price * qty;
+      if (!price || !qty || qty < 0.001) return;
+      ingestLiq({ side, price, qty, usdVal, time: Date.now() });
+    } catch(err) {}
+  };
+
+  liqWS.onclose = () => {
+    _liqConnected = false;
+    clearTimeout(openTimer);
+    _liqWsIdx++;
+    setTimeout(initLiqWS, 3000);
+  };
+  liqWS.onerror = () => {
+    _liqConnected = false;
+    try { liqWS.close(); } catch(e) {}
+  };
+}
+
+// 상태 표시 헬퍼
+function setLiqConnecting(cur, total) {
+  const feed = el('liqFeed');
+  if (feed) feed.innerHTML = `<div style="color:var(--amber);font-size:10px;padding:4px">🔄 연결 중... (${cur}/${total})</div>`;
+  drawLiqEmpty('연결 중...');
+}
+
+function setLiqConnected() {
+  const feed = el('liqFeed');
+  if (feed) feed.innerHTML = '<div style="color:var(--green);font-size:10px;padding:4px">✅ 청산 스트림 실시간 연결됨</div>';
+}
+
+function setLiqDisconnected() {
+  _liqFailed = true;
+  const feed = el('liqFeed');
+  if (feed) feed.innerHTML = `
+    <div style="color:var(--red);font-size:10px;padding:6px;text-align:center;line-height:1.8">
+      ❌ 연결 안됨<br>
+      <span style="color:var(--text3);font-size:9px">
+        Binance 청산 스트림에 접속할 수 없습니다.<br>
+        3분 후 자동 재시도합니다.
+      </span>
+    </div>`;
+  drawLiqEmpty('연결 안됨 — 3분 후 재시도');
+}
+
+// 빈 캔버스에 메시지 표시
+function drawLiqEmpty(msg) {
+  const canvas = document.getElementById('liqCanvas');
+  if (!canvas) return;
+  const W = canvas.offsetWidth || canvas.parentElement?.clientWidth || 260;
+  const H = 200;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#374151';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(msg, W/2, H/2 - 8);
+  ctx.font = '10px sans-serif';
+  ctx.fillStyle = '#1f2937';
+  ctx.fillText('실제 청산 발생 시 자동 표시됩니다', W/2, H/2 + 10);
+}
+
+// 청산 데이터 공통 처리
+function ingestLiq({ side, price, qty, usdVal, time }) {
+  liqData.push({ time, side, price, qty, usdVal });
+  liqData = liqData.filter(d => time - d.time < LIQ_MAX_AGE);
+  const bucket = Math.round(price / LIQ_BUCKET) * LIQ_BUCKET;
+  if (!liqBuckets[bucket]) liqBuckets[bucket] = { long: 0, short: 0 };
+  if (side === 'SELL') liqBuckets[bucket].long  += usdVal;
+  else                 liqBuckets[bucket].short += usdVal;
+  rebuildBuckets();
+  drawLiqMap();
+  updateLiqStats();
+  addLiqFeed(side, price, qty, usdVal, time);
+}
+
+function scheduleLiqRetry() {
+  setTimeout(initLiqWS, 5000);
+}
+
+function rebuildBuckets() {
+  // 1시간 데이터만 으로 버킷 재계산
+  liqBuckets = {};
+  for (const d of liqData) {
+    const bucket = Math.round(d.price / LIQ_BUCKET) * LIQ_BUCKET;
+    if (!liqBuckets[bucket]) liqBuckets[bucket] = { long: 0, short: 0 };
+    if (d.side === 'SELL') liqBuckets[bucket].long  += d.usdVal;
+    else                   liqBuckets[bucket].short += d.usdVal;
+  }
+}
+
+function addLiqFeed(side, price, qty, usdVal, now) {
+  const feed = el('liqFeed');
+  if (!feed) return;
+
+  const isLong  = side === 'SELL';
+  const cls     = isLong ? 'liq-long' : 'liq-short';
+  const label   = isLong ? '롱청산 ▼' : '숏청산 ▲';
+  const time    = new Date(now).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const kUsdt   = usdVal >= 1000000 ? (usdVal/1000000).toFixed(2)+'M' : usdVal >= 1000 ? (usdVal/1000).toFixed(0)+'K' : usdVal.toFixed(0);
+
+  // 큰 청산은 강조 (100K USDT 이상)
+  const isBig = usdVal >= 100000;
+  const row = document.createElement('div');
+  row.className = 'liq-feed-row';
+  row.innerHTML = `
+    <span class="${cls}" style="${isBig?'font-weight:700':''}">${label}${isBig?' 🔥':''}</span>
+    <span style="color:var(--text2)">$${price.toLocaleString()}</span>
+    <span style="color:var(--text3)">${qty.toFixed(3)} BTC</span>
+    <span class="${cls}">${kUsdt}</span>
+  `;
+  feed.insertBefore(row, feed.firstChild);
+  // 최대 개수 유지
+  while (feed.children.length > LIQ_MAX_FEED) feed.removeChild(feed.lastChild);
+}
+
+function drawLiqMap() {
+  const canvas = document.getElementById('liqCanvas');
+  if (!canvas) return;
+  const ctx  = canvas.getContext('2d');
+  // offsetWidth가 0이면 부모 너비 사용
+  const W = canvas.offsetWidth || canvas.parentElement?.clientWidth || 260;
+  const H = 200;
+  canvas.width  = W;
+  canvas.height = H;
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  const bucketKeys = Object.keys(liqBuckets).map(Number).sort((a,b) => a-b);
+  if (!bucketKeys.length) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('청산 데이터 수집 중...', W/2, H/2 - 8);
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = '#374151';
+    ctx.fillText('(실제 청산 발생 시 자동 표시)', W/2, H/2 + 10);
+    return;
+  }
+
+  const curPrice = state.price || 0;
+  const minP = Math.min(...bucketKeys);
+  const maxP = Math.max(...bucketKeys);
+  const priceRange = maxP - minP || LIQ_BUCKET * 10;
+
+  // 최대 청산량 (바 너비 정규화용)
+  const maxVol = Math.max(...bucketKeys.map(b => (liqBuckets[b].long || 0) + (liqBuckets[b].short || 0)));
+  if (!maxVol) return;
+
+  const barMaxW = W * 0.6;
+  const bucketH = Math.max(2, H / bucketKeys.length);
+
+  // 가격 → Y 좌표 (위=높은가격, 아래=낮은가격)
+  const priceToY = (p) => H - ((p - minP) / priceRange) * H;
+
+  bucketKeys.forEach(bucket => {
+    const d      = liqBuckets[bucket];
+    const longV  = d.long  || 0;
+    const shortV = d.short || 0;
+    const total  = longV + shortV;
+    const y      = priceToY(bucket);
+    const bh     = Math.max(1, bucketH * 0.8);
+
+    // 롱 청산 바 (왼쪽, 빨강)
+    if (longV > 0) {
+      const bw = (longV / maxVol) * barMaxW * 0.5;
+      ctx.fillStyle = `rgba(239,68,68,${0.4 + (longV/maxVol)*0.5})`;
+      ctx.fillRect(W/2 - bw, y - bh/2, bw, bh);
+    }
+    // 숏 청산 바 (오른쪽, 초록)
+    if (shortV > 0) {
+      const bw = (shortV / maxVol) * barMaxW * 0.5;
+      ctx.fillStyle = `rgba(16,185,129,${0.4 + (shortV/maxVol)*0.5})`;
+      ctx.fillRect(W/2, y - bh/2, bw, bh);
+    }
+    // 큰 청산 레이블 (총액 > maxVol * 0.2)
+    if (total > maxVol * 0.15) {
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      const k = total >= 1000000 ? (total/1000000).toFixed(1)+'M' : (total/1000).toFixed(0)+'K';
+      ctx.fillText('$'+k, W/2, y - bh/2 - 2);
+    }
+  });
+
+  // 가격 축 (우측)
+  ctx.fillStyle = '#64748b';
+  ctx.font = '8px sans-serif';
+  ctx.textAlign = 'right';
+  const step = Math.ceil((maxP - minP) / 6 / LIQ_BUCKET) * LIQ_BUCKET;
+  for (let p = Math.ceil(minP/step)*step; p <= maxP; p += step) {
+    const y = priceToY(p);
+    ctx.fillText('$'+(p/1000).toFixed(0)+'k', W - 2, y + 3);
+  }
+
+  // 현재가 라인
+  if (curPrice >= minP && curPrice <= maxP) {
+    const y = priceToY(curPrice);
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth   = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W * 0.75, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#f59e0b';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('현재가', W * 0.76, y + 3);
+  }
+
+  // 중앙 구분선
+  ctx.strokeStyle = '#1e2d45';
+  ctx.lineWidth   = 1;
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+
+  // 헤더 라벨
+  ctx.fillStyle = 'rgba(239,68,68,0.7)';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('롱청산 ◀', W/2 - 4, 10);
+  ctx.fillStyle = 'rgba(16,185,129,0.7)';
+  ctx.textAlign = 'left';
+  ctx.fillText('▶ 숏청산', W/2 + 4, 10);
+}
+
+function updateLiqStats() {
+  const now = Date.now();
+  const recent = liqData.filter(d => now - d.time < LIQ_MAX_AGE);
+
+  const longVol  = recent.filter(d => d.side === 'SELL').reduce((s,d) => s + d.usdVal, 0);
+  const shortVol = recent.filter(d => d.side === 'BUY' ).reduce((s,d) => s + d.usdVal, 0);
+
+  const fmt2 = v => v >= 1000000 ? (v/1000000).toFixed(2)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'K' : v.toFixed(0);
+
+  if (el('liqLongVol'))  el('liqLongVol').textContent  = '$'+fmt2(longVol);
+  if (el('liqShortVol')) el('liqShortVol').textContent = '$'+fmt2(shortVol);
+
+  // 최대 청산 밀집 가격
+  const bucketKeys = Object.keys(liqBuckets).map(Number);
+  if (bucketKeys.length) {
+    const maxLongBucket  = bucketKeys.reduce((a,b) => (liqBuckets[a].long||0)  > (liqBuckets[b].long||0)  ? a : b);
+    const maxShortBucket = bucketKeys.reduce((a,b) => (liqBuckets[a].short||0) > (liqBuckets[b].short||0) ? a : b);
+    if (el('liqLongMax'))  el('liqLongMax').textContent  = '$'+Number(maxLongBucket).toLocaleString();
+    if (el('liqShortMax')) el('liqShortMax').textContent = '$'+Number(maxShortBucket).toLocaleString();
+  }
+}
+
+// 가격 업데이트 시 맵 다시 그리기
+function liqOnPriceUpdate() {
+  if (liqData.length) drawLiqMap();
+}
+
+// ============================================================
 // 가상 매매 (Paper Trading)
 // ============================================================
 const VT_INIT_BAL = 10000;
@@ -2552,6 +2924,7 @@ function vtOpen(side) {
   };
   vtState.positions.push(pos);
   vtRenderAll();
+  // liq-init
 }
 
 function vtClose(id, reason = '수동청산') {
@@ -2578,6 +2951,7 @@ function vtClose(id, reason = '수동청산') {
   });
   if (vtState.history.length > 20) vtState.history.pop();
   vtRenderAll();
+  // liq-init
 }
 
 function vtCheckSLTP() {
@@ -2695,6 +3069,7 @@ function vtReset() {
   if (!confirm('가상 매매를 초기화할까요?')) return;
   vtState = { balance: VT_INIT_BAL, positions: [], history: [], totalPnl: 0 };
   vtRenderAll();
+  // liq-init
 }
 
 // ============================================================
@@ -2729,6 +3104,7 @@ function updatePriceUI(price, changePct) {
     }
     vtCheckSLTP();   // 가상매매 SL/TP 자동 체크
     vtRenderAll();   // 미실현 손익 실시간 업데이트
+    liqOnPriceUpdate(); // 청산맵 현재가 라인 갱신
   }, 300);
 }
 
@@ -2774,6 +3150,7 @@ async function init() {
 
   setInterval(() => { computePositionSize(); }, 5000);
   vtRenderAll();
+  initLiqWS();  // 청산맵 WebSocket 시작
 }
 
 init();
